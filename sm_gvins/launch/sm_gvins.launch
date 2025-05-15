@@ -1,0 +1,9 @@
+<launch>
+    <arg name="configfile" default="/home/sunwenz/Code/sm_gvins_ws/src/config/kitti_config00-02.yaml"/>
+
+    <node name="sm_gvins_node" pkg="sm_gvins" type="sm_gvins_node" output="screen"
+          args="$(arg configfile)" />
+
+    <node name="visualisation" pkg="rviz" type="rviz" output="log" args="-d /home/sunwenz/Code/sm_gvins_ws/src/config/visualization.rviz"/>
+
+</launch>

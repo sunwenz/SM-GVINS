@@ -6,12 +6,12 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
-
 #include <opencv2/opencv.hpp>
-
 #include <ros/ros.h>
 #include <sensor_msgs/image_encodings.h>
 #include <cv_bridge/cv_bridge.h>
+
+#include "drawer_rviz.h"
 
 class SM_GVINS{
    public:
@@ -59,4 +59,6 @@ class SM_GVINS{
 
     std::atomic<bool> running_{true};
     std::thread sync_thread_;
+
+    DrawerRviz drawer_;
 };

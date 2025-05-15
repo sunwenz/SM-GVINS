@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <opencv2/opencv.hpp>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
@@ -11,7 +12,8 @@
 
 #include "sophus/se3.hpp"
 
-#include "keyframe.h"
+#include "image.h"
+// #include "keyframe.h"
 
 using Eigen::Vector3d;
 using std::string;
@@ -26,23 +28,23 @@ public:
 
     void setFinished();
 
-    // 地图
-    void addNewFixedMappoint(Vector3d point);
+    // // 地图
+    // void addNewFixedMappoint(Vector3d point);
 
-    void updateMap(const Eigen::Matrix4d &pose);
+    // void updateMap(const Eigen::Matrix4d &pose);
 
     // 跟踪图像
-    void updateFrame(FramePtr frame);
+    void updateFrame(const Image& image);
     // void updateTrackedMapPoints(vector<cv::Point2f> map, vector<cv::Point2f> matched,
     //                             vector<MapPointType> mappoint_type);
-    void updateTrackedRefPoints(vector<cv::Point2f> ref, vector<cv::Point2f> cur);
+    // void updateTrackedRefPoints(vector<cv::Point2f> ref, vector<cv::Point2f> cur);
 
 private:
     void publishTrackingImage();
 
-    void publishMapPoints();
+    // void publishMapPoints();
 
-    void publishOdometry();
+    // void publishOdometry();
 
 private:
     // 多线程
@@ -52,9 +54,9 @@ private:
     std::mutex image_mutex_;
 
     // 标志
-    std::atomic<bool> isfinished_;
-    std::atomic<bool> isframerdy_;
-    std::atomic<bool> ismaprdy_;
+    std::atomic<bool> isfinished_{false};
+    std::atomic<bool> isframerdy_{false};
+    std::atomic<bool> ismaprdy_{false};
 
     // 跟踪
     cv::Mat raw_image_;
@@ -70,5 +72,7 @@ private:
     ros::Publisher current_points_pub_;
 
     string frame_id_;
+
+    std::thread drawer_;
 };
 
