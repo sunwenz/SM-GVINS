@@ -1,17 +1,27 @@
 #include "sm_gvins.h"
 #include <glog/logging.h>
 
-SM_GVINS::SM_GVINS(const ros::NodeHandle& nh, const Options& options = Options())
+SM_GVINS::SM_GVINS(ros::NodeHandle& nh, const Options& options)
     : options_(std::move(options))
 {
+    image0_sub_ = nh.subscribe(options_.image0_topic_, 100, &SM_GVINS::img0_callback, this);
+    image1_sub_ = nh.subscribe(options_.image1_topic_, 100, &SM_GVINS::img1_callback, this);
+
     sync_thread_ = std::thread(&SM_GVINS::sync_process, this);
 
     LOG(INFO) << "sm_gvins_node start";
 }
 
+SM_GVINS::~SM_GVINS() {
+    running_ = false;
+    if (sync_thread_.joinable()) {
+        sync_thread_.join();
+    }
+}
+
 void SM_GVINS::sync_process()
 {
-    while(1)
+    while(running_)
     {
         cv::Mat image0, image1;
         std_msgs::Header header;

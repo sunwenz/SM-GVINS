@@ -64,7 +64,10 @@ inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
 
 int main(int argc, char** argv)
 {
-    // google::InitGoogleLogging(argv[0]);
+    google::InitGoogleLogging(argv[0]);
+    google::SetStderrLogging(google::INFO); 
+    FLAGS_colorlogtostderr = true;
+    FLAGS_logtostderr = true;
 
     ros::init(argc, argv, "sm_gvins_node");
     ros::NodeHandle nh;
