@@ -2,7 +2,7 @@
 #include <glog/logging.h>
 
 SM_GVINS::SM_GVINS(ros::NodeHandle& nh, const Options& options)
-    : options_(std::move(options)), drawer_(nh)
+    : options_(std::move(options)), drawer_(nh), estimator_(options_.estimator_options_)
 {
     image0_sub_ = nh.subscribe(options_.image0_topic_, 100, &SM_GVINS::img0_callback, this);
     image1_sub_ = nh.subscribe(options_.image1_topic_, 100, &SM_GVINS::img1_callback, this);

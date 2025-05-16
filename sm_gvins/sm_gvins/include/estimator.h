@@ -11,7 +11,7 @@ class Estimator{
         Tracker::Options tracker_options_;
     };
 
-    Estimator();
+    Estimator(const Options& options = Options());
     void AddImage(const Image& image);
    private:
     Options options_;

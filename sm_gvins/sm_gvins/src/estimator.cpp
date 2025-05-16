@@ -1,7 +1,9 @@
 #include "estimator.h"
 #include <glog/logging.h>
 
-Estimator::Estimator(){
+Estimator::Estimator(const Options& options)
+    : options_(std::move(options))
+{
     tracker_ = std::make_shared<Tracker>(options_.tracker_options_);
 }
 
