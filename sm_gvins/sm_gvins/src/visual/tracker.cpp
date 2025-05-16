@@ -2,11 +2,6 @@
 #include <glog/logging.h>
 #include <unordered_map>
 
-#include <g2o/core/block_solver.h>
-#include <g2o/core/optimization_algorithm_levenberg.h>
-#include <g2o/core/robust_kernel.h>
-#include <g2o/solvers/eigen/linear_solver_eigen.h>
-
 #include "tracker.h"
 #include "timer.h"
 #include "math.h"

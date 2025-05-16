@@ -53,14 +53,16 @@ inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
         if (Tbc0_data.size() != 16 || Tbc1_data.size() != 16)
             throw std::runtime_error("Extrinsic matrices must have 16 elements (4x4).");
 
-        Eigen::Matrix4d Tbc0_mat, Tbc1_mat;
-        std::copy(Tbc0_data.begin(), Tbc0_data.end(), Tbc0_mat.data());
-        std::copy(Tbc1_data.begin(), Tbc1_data.end(), Tbc1_mat.data());
+        using Matrix4dRowMajor = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
+        Eigen::Matrix4d Tbc0_mat = Matrix4dRowMajor(Tbc0_data.data());
+        Eigen::Matrix4d Tbc1_mat = Matrix4dRowMajor(Tbc1_data.data());
 
         Eigen::Matrix3d Rbc0 = Tbc0_mat.block<3,3>(0,0);
         Eigen::Vector3d tbc0 = Tbc0_mat.block<3,1>(0,3);
         Eigen::Matrix3d Rbc1 = Tbc1_mat.block<3,3>(0,0);
         Eigen::Vector3d tbc1 = Tbc1_mat.block<3,1>(0,3);
+        LOG(INFO) << "Tbc0_mat:\n" << Tbc0_mat;
+        LOG(INFO) << "Tbc1_mat:\n" << Tbc1_mat;
 
         options.estimator_options_.Tbc0_ = SE3(SO3(Rbc0), tbc0);
         options.estimator_options_.Tbc1_ = SE3(SO3(Rbc1), tbc1);
