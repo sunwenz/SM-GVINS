@@ -72,3 +72,4 @@ void DrawerRviz::publishTrackingImage() {
 
     track_image_pub_.publish(out_msg.toImageMsg());
 }
+

@@ -8,7 +8,6 @@
 inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
     SM_GVINS::Options options;
 
-    // 检查文件是否存在
     std::ifstream fin(config_file);
     if (!fin.good()) {
         throw std::runtime_error("YAML config file not found: " + config_file);
@@ -25,35 +24,51 @@ inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
         options.image0_topic_ = config["image0_topic"].as<std::string>();
         options.image1_topic_ = config["image1_topic"].as<std::string>();
         options.output_path_  = config["output_path"].as<std::string>();
-        options.image_width_  = config["image_width"].as<int>();
-        options.image_height_ = config["image_height"].as<int>();
+
+        options.estimator_options_.tracker_options_.image_width_  = config["image_width"].as<int>();
+        options.estimator_options_.tracker_options_.image_height_ = config["image_height"].as<int>();
 
         auto proj = config["projection_parameters"];
         auto dist = config["distortion_parameters"];
 
-        if (!proj || !dist) throw std::runtime_error("Missing projection_parameters or distortion_parameters.");
+        if (!proj || !dist)
+            throw std::runtime_error("Missing projection_parameters or distortion_parameters.");
 
         double fx = proj["fx"].as<double>();
         double fy = proj["fy"].as<double>();
         double cx = proj["cx"].as<double>();
         double cy = proj["cy"].as<double>();
-        options.K_ = (cv::Mat_<double>(3, 3) << fx, 0, cx,
-                                                0, fy, cy,
-                                                0, 0, 1);
+        options.estimator_options_.tracker_options_.K_ = (cv::Mat_<double>(3, 3) << fx, 0, cx,
+                                                                                   0, fy, cy,
+                                                                                   0, 0, 1);
 
         double k1 = dist["k1"].as<double>();
         double k2 = dist["k2"].as<double>();
         double p1 = dist["p1"].as<double>();
         double p2 = dist["p2"].as<double>();
-        options.D_ = (cv::Mat_<double>(1, 4) << k1, k2, p1, p2);
+        options.estimator_options_.tracker_options_.D_ = (cv::Mat_<double>(1, 4) << k1, k2, p1, p2);
 
         std::vector<double> Tbc0_data = config["body_T_cam0"]["data"].as<std::vector<double>>();
         std::vector<double> Tbc1_data = config["body_T_cam1"]["data"].as<std::vector<double>>();
         if (Tbc0_data.size() != 16 || Tbc1_data.size() != 16)
             throw std::runtime_error("Extrinsic matrices must have 16 elements (4x4).");
 
-        options.Tbc0_ = cv::Mat(4, 4, CV_64F, Tbc0_data.data()).clone();
-        options.Tbc1_ = cv::Mat(4, 4, CV_64F, Tbc1_data.data()).clone();
+        Eigen::Matrix4d Tbc0_mat, Tbc1_mat;
+        std::copy(Tbc0_data.begin(), Tbc0_data.end(), Tbc0_mat.data());
+        std::copy(Tbc1_data.begin(), Tbc1_data.end(), Tbc1_mat.data());
+
+        Eigen::Matrix3d Rbc0 = Tbc0_mat.block<3,3>(0,0);
+        Eigen::Vector3d tbc0 = Tbc0_mat.block<3,1>(0,3);
+        Eigen::Matrix3d Rbc1 = Tbc1_mat.block<3,3>(0,0);
+        Eigen::Vector3d tbc1 = Tbc1_mat.block<3,1>(0,3);
+
+        options.estimator_options_.Tbc0_ = SE3(SO3(Rbc0), tbc0);
+        options.estimator_options_.Tbc1_ = SE3(SO3(Rbc1), tbc1);
+
+        // 计算 cam0_T_cam1 = Tbc0.inverse() * Tbc1
+        SE3 Tc0c1 = options.estimator_options_.Tbc0_.inverse() * options.estimator_options_.Tbc1_;
+        options.estimator_options_.tracker_options_.Tc0c1_ = Tc0c1;
+
     } catch (const YAML::Exception& e) {
         throw std::runtime_error("YAML value error: " + std::string(e.what()));
     }
@@ -61,6 +76,7 @@ inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
     LOG(INFO) << "Load Options Finished.";
     return options;
 }
+
 
 int main(int argc, char** argv)
 {

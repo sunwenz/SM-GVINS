@@ -11,6 +11,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <cv_bridge/cv_bridge.h>
 
+#include "estimator.h"
 #include "drawer_rviz.h"
 
 class SM_GVINS{
@@ -19,12 +20,8 @@ class SM_GVINS{
         std::string image0_topic_;
         std::string image1_topic_;
         std::string output_path_;
-        int image_width_;
-        int image_height_;
-        cv::Mat K_;  // Camera intrinsic matrix
-        cv::Mat D_;  // Distortion coeffs
-        cv::Mat Tbc0_;
-        cv::Mat Tbc1_;
+
+        Estimator::Options estimator_options_;
     };
     
     SM_GVINS(ros::NodeHandle& nh, const Options& options = Options());
@@ -60,5 +57,6 @@ class SM_GVINS{
     std::atomic<bool> running_{true};
     std::thread sync_thread_;
 
+    Estimator estimator_;
     DrawerRviz drawer_;
 };

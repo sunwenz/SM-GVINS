@@ -57,9 +57,9 @@ void SM_GVINS::sync_process()
 
         
         if(!image0.empty()){
-            Image image(time, image0);
+            Image image(time, image0, image1);
             drawer_.updateFrame(image);
-            // estimator.inputImage(time, image0, image1);
+            estimator_.AddImage(image);
         }
             
 
