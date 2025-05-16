@@ -17,6 +17,93 @@ Tracker::Tracker(const Options& options)
 
 
 bool Tracker::TrackFrame(const Image& image){    
+    curr_frame_ = Frame::CreateFrame(image);
+
+    int num_track_last = TrackLastFrame();
+    DetectFeatures();
+
+    bool is_keyframe = false;
+    if(curr_frame_->features_left_.size() < MIN_FEATURES){
+        is_keyframe = true;
+        LOG(INFO) << "be selected of the keyframe because the features not enough";
+    }
+
+    if (!is_keyframe && last_frame_) {
+        double total_parallax = 0.0;
+        int valid_pairs = 0;
+
+        for (auto& feat_curr : curr_frame_->features_left_) {
+            if (!feat_curr || feat_curr->map_point_.expired()) continue;
+
+            auto mp = feat_curr->map_point_.lock();
+
+            // 在上一帧中找是否有这个 MapPoint 的观测
+            for (auto& feat_last : last_frame_->features_left_) {
+                if (!feat_last || feat_last->map_point_.expired()) continue;
+                if (feat_last->map_point_.lock() == mp) {
+                    // 计算两帧的像素视差（欧氏距离）
+                    double dx = feat_curr->pixel_pt_.pt.x - feat_last->pixel_pt_.pt.x;
+                    double dy = feat_curr->pixel_pt_.pt.y - feat_last->pixel_pt_.pt.y;
+                    double parallax = std::sqrt(dx * dx + dy * dy);
+                    total_parallax += parallax;
+                    valid_pairs++;
+                    break; // 匹配一次就够了
+                }
+            }
+        }
+
+        double avg_parallax = (valid_pairs > 0) ? total_parallax / valid_pairs : 0.0;
+        if (avg_parallax > PARALLAX_THRESHOLD) {
+            is_keyframe = true;
+            LOG(INFO) << "be selected of the keyframe because avg_parallax (" 
+                    << avg_parallax << " > " << PARALLAX_THRESHOLD << ")";
+        }
+    }
+
+    if (!is_keyframe && last_frame_->timestamp_ >= 0 && (curr_frame_->timestamp_ - last_frame_->timestamp_) > MIN_TIME_GAP) {
+        is_keyframe = true;
+        LOG(INFO) << "be selected of the keyframe because (" << (curr_frame_->timestamp_ - last_frame_->timestamp_) << " > " << MIN_TIME_GAP << ")";
+    }
+
+    if(is_keyframe = false){
+        return false;
+    }
+    
+    int track_inliers = EstimatorCurrentPose();
+}
+
+int Tracker::TrackLastFrame(){
+    std::vector<cv::Point2f> kps_last, kps_curr;
+    for(auto& kp : last_frame_->features_left_){
+        kps_last.push_back(kp->pixel_pt_.pt);
+        kps_curr.push_back(kp->pixel_pt_.pt);
+    }
+
+    std::vector<uchar> status;
+    cv::Mat error;
+    cv::calcOpticalFlowPyrLK(
+        last_frame_->left_img_, curr_frame_->left_img_, 
+        kps_last, kps_curr, status, error, cv::Size(11, 11), 3,
+        cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30,
+                         0.01),
+        cv::OPTFLOW_USE_INITIAL_FLOW);
+    
+    int good_num_pts = 0;
+    for(size_t i = 0; i < status.size(); ++i){
+        if(status[i]){
+            cv::KeyPoint kp(kps_curr[i], 7);
+            FeaturePtr feature(new Feature(curr_frame_, kp));
+            feature->map_point_ = last_frame_->features_left_[i]->map_point_;
+            curr_frame_->features_left_.push_back(feature);
+            good_num_pts++;
+        }
+    }
+
+    LOG(INFO) << "find " << good_num_pts << " in the last image";
+    return good_num_pts;
+}
+
+int Tracker::EstimatorCurrentPose(){
     
 }
 
@@ -67,7 +154,7 @@ int Tracker::FindFeaturesInRight(){
         if (mp) {
             // use projected points as initial guess
             auto px =
-                camera_right_->world2pixel(mp->pos_, curr_frame_->pose_);
+                camera_right_->world2pixel(mp->pos_, curr_frame_->pose_ * options_.Tc0c1_);
             kps_right.push_back(cv::Point2f(px[0], px[1]));
         } else {
             // use same pixel in left iamge

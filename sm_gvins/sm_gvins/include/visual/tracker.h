@@ -37,6 +37,10 @@ public:
 
     bool Initilize(const Image& image);
 private:
+    int TrackLastFrame();
+
+    int EstimatorCurrentPose();
+
     int DetectFeatures();
 
     int FindFeaturesInRight();
