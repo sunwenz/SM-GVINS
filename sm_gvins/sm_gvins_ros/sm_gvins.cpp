@@ -7,6 +7,8 @@ SM_GVINS::SM_GVINS(ros::NodeHandle& nh, const Options& options)
     image0_sub_ = nh.subscribe(options_.image0_topic_, 100, &SM_GVINS::img0_callback, this);
     image1_sub_ = nh.subscribe(options_.image1_topic_, 100, &SM_GVINS::img1_callback, this);
 
+    f_out_ = std::ofstream(options_.output_path_);
+
     sync_thread_ = std::thread(&SM_GVINS::sync_process, this);
 
     LOG(INFO) << "sm_gvins_node start";
@@ -60,6 +62,7 @@ void SM_GVINS::sync_process()
             Image image(time, image0, image1);
             drawer_.updateFrame(image);
             estimator_.AddImage(image);
+            save_result(f_out_, estimator_.GetNavState());
         }
             
 

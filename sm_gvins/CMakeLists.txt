@@ -5,16 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 # set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")
 
-set(g2o_libs
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_stuff.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_core.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_solver_dense.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_solver_csparse.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_csparse_extension.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_types_sba.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_types_slam3d_addons.so
-    ${PROJECT_SOURCE_DIR}/lib/libg2o_types_slam3d.so
-)
+# set(g2o_libs
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_stuff.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_core.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_solver_dense.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_solver_csparse.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_csparse_extension.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_types_sba.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_types_slam3d_addons.so
+#     ${PROJECT_SOURCE_DIR}/lib/libg2o_types_slam3d.so
+# )
+file(GLOB g2o_libs ${PROJECT_SOURCE_DIR}/lib/*.so)
 
 set(glog_lib ${PROJECT_SOURCE_DIR}/thirdparty/glog/install/lib/libglog.a)
 # message(STATUS "glog_lib path: ${glog_lib}")
@@ -45,8 +46,9 @@ include_directories(
   ${PROJECT_SOURCE_DIR}/sm_gvins/include/utils
   ${PROJECT_SOURCE_DIR}/thirdparty/sophus
   ${PROJECT_SOURCE_DIR}/thirdparty/eigen
-  ${PROJECT_SOURCE_DIR}/thirdparty/g2o 
+  ${PROJECT_SOURCE_DIR}/thirdparty/g2o
   ${PROJECT_SOURCE_DIR}/thirdparty/g2o/build
+  ${PROJECT_SOURCE_DIR}/thirdparty/g2o/EXTERNAL/csparse
   ${PROJECT_SOURCE_DIR}/thirdparty/glog/install/include
 )
 message(STATUS "PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}")
@@ -72,5 +74,6 @@ target_link_libraries(sm_gvins_node
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${glog_lib}
+  ${g2o_libs}
   yaml-cpp
 )

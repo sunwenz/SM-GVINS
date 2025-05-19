@@ -6,13 +6,11 @@
 #include "timer.h"
 #include "math.h"
 
-Tracker::Tracker(const Options& options)
-    : options_(std::move(options))
+Tracker::Tracker(MapPtr map, const Options& options)
+    : map_(std::move(map)), options_(std::move(options))
 {
     camera_left_  = Camera::createCamera(options_.K_, options_.D_, cv::Size(options_.image_width_, options_.image_width_));
     camera_right_ = Camera::createCamera(options_.K_, options_.D_, cv::Size(options_.image_width_, options_.image_width_));
-
-    map_ = std::make_shared<Map>();
 }
 
 
@@ -22,13 +20,45 @@ bool Tracker::TrackFrame(const Image& image){
     int num_track_last = TrackLastFrame();
     DetectFeatures();
 
-    bool is_keyframe = false;
-    if(curr_frame_->features_left_.size() < MIN_FEATURES){
-        is_keyframe = true;
-        LOG(INFO) << "be selected of the keyframe because the features not enough";
+    bool is_keyframe = IsKeyframe();
+    if(is_keyframe = false){
+        return false;
+    }
+    
+    if(!EstimatorCurrentPose()){
+        return false;
     }
 
-    if (!is_keyframe && last_frame_) {
+    curr_frame_->SetKeyFrame();
+    
+    SetObservationsForKeyFrame();
+    
+    FindFeaturesInRight();
+    
+    map_->InsertKeyFrame(curr_frame_);
+    
+    LOG(INFO) << "Set frame " << curr_frame_->id_ << " as keyframe "
+              << curr_frame_->keyframe_id_;
+
+    TriangulateNewPoints();
+
+    last_frame_ = curr_frame_;
+}
+
+void Tracker::SetObservationsForKeyFrame() {
+    for (auto &feat : curr_frame_->features_left_) {
+        auto mp = feat->map_point_.lock();
+        if (mp) mp->AddObservation(feat);
+    }
+}
+
+bool Tracker::IsKeyframe(){
+    if(curr_frame_->features_left_.size() < MIN_FEATURES){
+        LOG(INFO) << "be selected of the keyframe because the features not enough";
+        return true;
+    }
+
+    if (last_frame_) {
         double total_parallax = 0.0;
         int valid_pairs = 0;
 
@@ -54,22 +84,17 @@ bool Tracker::TrackFrame(const Image& image){
 
         double avg_parallax = (valid_pairs > 0) ? total_parallax / valid_pairs : 0.0;
         if (avg_parallax > PARALLAX_THRESHOLD) {
-            is_keyframe = true;
             LOG(INFO) << "be selected of the keyframe because avg_parallax (" 
                     << avg_parallax << " > " << PARALLAX_THRESHOLD << ")";
+            return true;
         }
     }
 
-    if (!is_keyframe && last_frame_->timestamp_ >= 0 && (curr_frame_->timestamp_ - last_frame_->timestamp_) > MIN_TIME_GAP) {
-        is_keyframe = true;
+    if (last_frame_->timestamp_ >= 0 && (curr_frame_->timestamp_ - last_frame_->timestamp_) > MIN_TIME_GAP) {
         LOG(INFO) << "be selected of the keyframe because (" << (curr_frame_->timestamp_ - last_frame_->timestamp_) << " > " << MIN_TIME_GAP << ")";
+        return true;
     }
-
-    if(is_keyframe = false){
-        return false;
-    }
-    
-    int track_inliers = EstimatorCurrentPose();
+    return false;
 }
 
 int Tracker::TrackLastFrame(){
@@ -103,8 +128,97 @@ int Tracker::TrackLastFrame(){
     return good_num_pts;
 }
 
-int Tracker::EstimatorCurrentPose(){
+bool Tracker::EstimatorCurrentPose() {
+    std::vector<cv::Point3f> obj_points;  
+    std::vector<cv::Point2f> img_points;  
     
+    // 收集所有有对应地图点的特征点
+    for (auto& feat : curr_frame_->features_left_) {
+        if (feat && !feat->map_point_.expired()) {
+            auto mp = feat->map_point_.lock();
+            obj_points.push_back(cv::Point3f(mp->pos_[0], mp->pos_[1], mp->pos_[2]));
+            img_points.push_back(feat->pixel_pt_.pt);
+        }
+    }
+    
+    // 确保有足够的点进行PnP求解
+    if (obj_points.size() < 4) {
+        LOG(WARNING) << "Not enough points for PnP estimation: " << obj_points.size();
+        return false;
+    }
+    
+    // 初始估计值（使用上一帧位姿作为初始值）
+    cv::Mat rvec, tvec;
+    if (last_frame_) {
+        // 从SE3转换为旋转向量
+        Eigen::Matrix3d R = last_frame_->pose_.rotationMatrix();
+        cv::Mat R_cv(3, 3, CV_64F);
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                R_cv.at<double>(i, j) = R(i, j);
+        
+        cv::Rodrigues(R_cv, rvec);
+        
+        // 平移向量
+        Eigen::Vector3d t = last_frame_->pose_.translation();
+        tvec = cv::Mat(3, 1, CV_64F);
+        for (int i = 0; i < 3; ++i)
+            tvec.at<double>(i) = t(i);
+    } else {
+        // 如果没有上一帧，初始化为零
+        rvec = cv::Mat::zeros(3, 1, CV_64F);
+        tvec = cv::Mat::zeros(3, 1, CV_64F);
+    }
+    
+    // 使用EPnP方法进行位姿估计
+    bool pnp_success = cv::solvePnP(obj_points, img_points, options_.K_, options_.D_, rvec, tvec, 
+                                   true, cv::SOLVEPNP_EPNP);
+    
+    if (!pnp_success) {
+        LOG(WARNING) << "PnP estimation failed!";
+        return false;
+    }
+    
+    // 使用RANSAC进行优化
+    std::vector<int> inliers;
+    cv::solvePnPRansac(obj_points, img_points, options_.K_, options_.D_, rvec, tvec, 
+                      true, 100, 8.0, 0.99, inliers, cv::SOLVEPNP_EPNP);
+    
+    LOG(INFO) << "PnP inliers: " << inliers.size() << "/" << obj_points.size();
+    
+    // 从旋转向量转换为旋转矩阵
+    cv::Mat R_cv;
+    cv::Rodrigues(rvec, R_cv);
+    
+    // 更新当前帧的位姿
+    Eigen::Matrix3d R_eigen;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            R_eigen(i, j) = R_cv.at<double>(i, j);
+    
+    Eigen::Vector3d t_eigen;
+    for (int i = 0; i < 3; ++i)
+        t_eigen(i) = tvec.at<double>(i);
+    
+    curr_frame_->pose_ = SE3(R_eigen, t_eigen);
+    
+    // 评估重投影误差
+    double reproj_error = 0.0;
+    for (int i : inliers) {
+        std::vector<cv::Point3f> obj_point(1, obj_points[i]);
+        std::vector<cv::Point2f> img_point_proj;
+        cv::projectPoints(obj_point, rvec, tvec,  options_.K_, options_.D_, img_point_proj);
+        
+        double dx = img_point_proj[0].x - img_points[i].x;
+        double dy = img_point_proj[0].y - img_points[i].y;
+        reproj_error += std::sqrt(dx*dx + dy*dy);
+    }
+    
+    if (inliers.size() > 0) {
+        reproj_error /= inliers.size();
+        LOG(INFO) << "Average reprojection error: " << reproj_error << " pixels";
+    }
+    return true;
 }
 
 bool Tracker::Initilize(const Image& image){
@@ -130,19 +244,22 @@ int Tracker::DetectFeatures(){
         cv::rectangle(mask, feature->pixel_pt_.pt - cv::Point2f(10, 10), feature->pixel_pt_.pt + cv::Point2f(10, 10), 0, cv::FILLED);
     }
 
-    std::vector<cv::Point2f> points;
-    cv::goodFeaturesToTrack(curr_frame_->left_img_, points, MAX_CNT - curr_frame_->features_left_.size(), 0.01, MIN_DIST, mask);
-    
     int cnt_detected = 0;
-    std::vector<cv::KeyPoint> keypoints;
-    cv::KeyPoint::convert(points, keypoints);
-    for (auto &kp : keypoints) {
-        curr_frame_->features_left_.push_back(
-            FeaturePtr(new Feature(curr_frame_, kp)));
-        cnt_detected++;
-    }
+    std::vector<cv::Point2f> points;
+    int n_max_cnt = MAX_CNT - static_cast<int>(curr_frame_->features_left_.size());
+    if(n_max_cnt > 0){
+        cv::goodFeaturesToTrack(curr_frame_->left_img_, points, MAX_CNT - curr_frame_->features_left_.size(), 0.01, MIN_DIST, mask);
+        std::vector<cv::KeyPoint> keypoints;
+        cv::KeyPoint::convert(points, keypoints);
+        for (auto &kp : keypoints) {
+            curr_frame_->features_left_.push_back(
+                FeaturePtr(new Feature(curr_frame_, kp)));
+            cnt_detected++;
+        }
 
-    LOG(INFO) << "Detect " << cnt_detected << " new features";
+        LOG(INFO) << "Detect " << cnt_detected << " new features";
+    }
+    
     return cnt_detected;
 }
 
@@ -220,4 +337,38 @@ bool Tracker::BuildInitMap(){
               << " map points";
 
     return true;
+}
+
+void Tracker::TriangulateNewPoints(){
+    std::vector<SE3> poses{curr_frame_->pose_, curr_frame_->pose_ * options_.Tc0c1_.inverse()};
+    int cnt_triangulated_pts = 0;
+    for (size_t i = 0; i < curr_frame_->features_left_.size(); ++i) {
+        if (curr_frame_->features_left_[i]->map_point_.expired() &&
+            curr_frame_->features_right_[i] != nullptr) {
+            // 左图的特征点未关联地图点且存在右图匹配点，尝试三角化
+            std::vector<Vec3d> points{
+                camera_left_->pixel2camera(
+                    Vec2d(curr_frame_->features_left_[i]->pixel_pt_.pt.x,
+                         curr_frame_->features_left_[i]->pixel_pt_.pt.y)),
+                camera_right_->pixel2camera(
+                    Vec2d(curr_frame_->features_right_[i]->pixel_pt_.pt.x,
+                         curr_frame_->features_right_[i]->pixel_pt_.pt.y))};
+            Vec3d pworld = Vec3d::Zero();
+
+            if (math::triangulatePoint(poses, points, pworld) && pworld[2] > 0) {
+                auto new_map_point = MapPoint::CreateNewMappoint();
+                new_map_point->pos_ = pworld;
+                new_map_point->AddObservation(
+                    curr_frame_->features_left_[i]);
+                new_map_point->AddObservation(
+                    curr_frame_->features_right_[i]);
+
+                curr_frame_->features_left_[i]->map_point_ = new_map_point;
+                curr_frame_->features_right_[i]->map_point_ = new_map_point;
+                map_->InsertMapPoint(new_map_point);
+                cnt_triangulated_pts++;
+            }
+        }
+    }
+    LOG(INFO) << "new landmarks: " << cnt_triangulated_pts;
 }

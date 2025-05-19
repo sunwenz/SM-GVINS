@@ -31,21 +31,27 @@ public:
         SE3 Tc0c1_;
     };
     
-    Tracker(const Options& options = Options());
+    Tracker(MapPtr map, const Options& options = Options());
 
     bool TrackFrame(const Image& image);
 
     bool Initilize(const Image& image);
 private:
+    bool IsKeyframe();
+    
     int TrackLastFrame();
 
-    int EstimatorCurrentPose();
+    bool EstimatorCurrentPose();
+
+    void SetObservationsForKeyFrame();
 
     int DetectFeatures();
 
     int FindFeaturesInRight();
 
     bool BuildInitMap();
+
+    void TriangulateNewPoints();
 
     FramePtr curr_frame_      = nullptr;
     FramePtr last_frame_      = nullptr;

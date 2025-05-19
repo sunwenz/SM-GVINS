@@ -44,6 +44,7 @@ class Map {
     /// 清理map中观测数量为零的点
     void CleanMap();
 
+    FramePtr current_frame_ = nullptr;
    private:
     // 将旧的关键帧置为不活跃状态
     void RemoveOldKeyframe();
@@ -52,8 +53,6 @@ class Map {
     LandmarksType active_landmarks_;  // active landmarks
     KeyframesType keyframes_;         // all key-frames
     KeyframesType active_keyframes_;  // all key-frames
-
-    FramePtr current_frame_ = nullptr;
 
     // settings
     int num_active_keyframes_ = 7;  // 激活的关键帧数量

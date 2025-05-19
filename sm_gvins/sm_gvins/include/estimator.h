@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types/image.h"
+#include "types/nav_state.h"
 #include "visual/tracker.h"
 
 class Estimator{
@@ -12,9 +13,17 @@ class Estimator{
     };
 
     Estimator(const Options& options = Options());
+    
     void AddImage(const Image& image);
+
+    NavStated GetNavState() const {
+        return NavStated(map_->current_frame_->timestamp_, map_->current_frame_->pose_);
+    }
    private:
+    void Optimize(Map::KeyframesType& keyframes, Map::LandmarksType& landmarks);
+
     Options options_;
     bool is_first_image_ = true;
     TrackerPtr tracker_ = nullptr;
+    MapPtr map_ = nullptr;
 };
