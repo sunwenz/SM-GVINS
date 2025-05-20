@@ -10,8 +10,8 @@
 Estimator::Estimator(const Options& options)
     : options_(std::move(options))
 {
-    camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K_, options_.tracker_options_.D_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
-    camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K_, options_.tracker_options_.D_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
+    camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
+    camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
     camera_right_->pose_ = options_.tracker_options_.Tc0c1_;
     camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_.inverse();
 

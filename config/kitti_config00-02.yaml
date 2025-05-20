@@ -1,20 +1,33 @@
 %YAML:1.0
 image0_topic: "/kitti/camera_gray_left/image_raw"
 image1_topic: "/kitti/camera_gray_right/image_raw"
-output_path: "/home/shentao/code/sm_gvins_ws/src/output"
+output_path: "/home/sunwenz/Code/sm_gvins_ws/src/output/kitti00.txt"
 
 image_width: 1241
 image_height: 376
-distortion_parameters:
-   k1: 0
-   k2: 0
-   p1: 0
-   p2: 0
-projection_parameters:
-   fx: 7.188560000000e+02
-   fy: 7.188560000000e+02
-   cx: 6.071928000000e+02
-   cy: 1.852157000000e+02
+cam0:
+   distortion_parameters:
+      k1: 0
+      k2: 0
+      p1: 0
+      p2: 0
+   projection_parameters:
+      fx: 7.188560000000e+02
+      fy: 7.188560000000e+02
+      cx: 6.071928000000e+02
+      cy: 1.852157000000e+02
+
+cam1:
+   distortion_parameters:
+      k1: 0
+      k2: 0
+      p1: 0
+      p2: 0
+   projection_parameters:
+      fx: 7.188560000000e+02
+      fy: 7.188560000000e+02
+      cx: 6.071928000000e+02
+      cy: 1.852157000000e+02
 
 body_T_cam0: !!opencv-matrix
    rows: 4
