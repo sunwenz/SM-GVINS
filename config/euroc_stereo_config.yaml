@@ -6,16 +6,29 @@ output_path: "/home/shentao/code/sm_gvins_ws/src/output/euroc_state.txt"
 
 image_width: 752
 image_height: 480
-distortion_parameters:
-   k1: -2.9545645106987750e-01
-   k2: 8.6623215640186171e-02
-   p1: 2.0132892276082517e-06
-   p2: 1.3924531371276508e-05
-projection_parameters:
-   fx: 4.6115862106007575e+02
-   fy: 4.5975286598073296e+02
-   cx: 3.6265929181685937e+02
-   cy: 2.4852105668448124e+02
+cam0:
+   distortion_parameters:
+      k1: -2.9545645106987750e-01
+      k2: 8.6623215640186171e-02
+      p1: 2.0132892276082517e-06
+      p2: 1.3924531371276508e-05
+   projection_parameters:
+      fx: 4.6115862106007575e+02
+      fy: 4.5975286598073296e+02
+      cx: 3.6265929181685937e+02
+      cy: 2.4852105668448124e+02
+
+cam1:
+   distortion_parameters:
+      k1: -2.9294124381930947e-01
+      k2: 8.4798002331543665e-02
+      p1: -2.9984646536002372e-04
+      p2: 3.0028216325237329e-04
+   projection_parameters:
+      fx: 4.6009781682258682e+02
+      fy: 4.5890983492218902e+02
+      cx: 3.7314916359808268e+02
+      cy: 2.5440734973672119e+02
 
 body_T_cam0: !!opencv-matrix
    rows: 4

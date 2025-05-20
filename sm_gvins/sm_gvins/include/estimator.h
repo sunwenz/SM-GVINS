@@ -26,4 +26,5 @@ class Estimator{
     bool is_first_image_ = true;
     TrackerPtr tracker_ = nullptr;
     MapPtr map_ = nullptr;
+    Camera::Ptr camera_left_ = nullptr, camera_right_ = nullptr;
 };

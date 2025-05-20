@@ -1,6 +1,7 @@
 #pragma once
 
 #include "eigen_types.h"
+#include <glog/logging.h>
 
 #include <g2o/core/base_binary_edge.h>
 #include <g2o/core/base_unary_edge.h>
@@ -52,6 +53,47 @@ class VertexXYZ : public g2o::BaseVertex<3, Vec3d> {
     virtual bool write(std::ostream &out) const override { return true; }
 };
 
+class EdgeProjectionPoseOnly : public g2o::BaseUnaryEdge<2, Vec2d, VertexPose> {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+
+    EdgeProjectionPoseOnly(const Vec3d &pos, const Mat3d &K)
+        : _pos3d(pos), _K(K) {}
+
+    virtual void computeError() override {
+        const VertexPose *v = static_cast<VertexPose *>(_vertices[0]);
+        SE3 T = v->estimate();
+        Vec3d pos_pixel = _K * (T * _pos3d);
+        pos_pixel /= pos_pixel[2];
+        _error = _measurement - pos_pixel.head<2>();
+    }
+
+    virtual void linearizeOplus() override {
+        const VertexPose *v = static_cast<VertexPose *>(_vertices[0]);
+        SE3 T = v->estimate();
+        Vec3d pos_cam = T * _pos3d;
+        double fx = _K(0, 0);
+        double fy = _K(1, 1);
+        double X = pos_cam[0];
+        double Y = pos_cam[1];
+        double Z = pos_cam[2];
+        double Zinv = 1.0 / (Z + 1e-18);
+        double Zinv2 = Zinv * Zinv;
+        _jacobianOplusXi << -fx * Zinv, 0, fx * X * Zinv2, fx * X * Y * Zinv2,
+            -fx - fx * X * X * Zinv2, fx * Y * Zinv, 0, -fy * Zinv,
+            fy * Y * Zinv2, fy + fy * Y * Y * Zinv2, -fy * X * Y * Zinv2,
+            -fy * X * Zinv;
+    }
+
+    virtual bool read(std::istream &in) override { return true; }
+
+    virtual bool write(std::ostream &out) const override { return true; }
+
+   private:
+    Vec3d _pos3d;
+    Mat3d _K;
+};
+
 /// 带有地图和位姿的二元边
 class EdgeProjection
     : public g2o::BaseBinaryEdge<2, Vec2d, VertexPose, VertexXYZ> {
@@ -67,6 +109,10 @@ class EdgeProjection
         const VertexPose *v0 = static_cast<VertexPose *>(_vertices[0]);
         const VertexXYZ *v1 = static_cast<VertexXYZ *>(_vertices[1]);
         SE3 T = v0->estimate();
+        LOG(INFO) << "_K:\n" << _K;
+        LOG(INFO) << "T mat:\n" << T.rotationMatrix();
+        LOG(INFO) << "T tran:" << T.translation().transpose();
+        LOG(INFO) << "v1:" << v1->estimate().transpose();
         Vec3d pos_pixel = _K * (_cam_ext * (T * v1->estimate()));
         pos_pixel /= pos_pixel[2];
         _error = _measurement - pos_pixel.head<2>();

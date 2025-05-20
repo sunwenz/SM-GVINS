@@ -9,25 +9,31 @@
 Tracker::Tracker(MapPtr map, const Options& options)
     : map_(std::move(map)), options_(std::move(options))
 {
-    camera_left_  = Camera::createCamera(options_.K_, options_.D_, cv::Size(options_.image_width_, options_.image_width_));
-    camera_right_ = Camera::createCamera(options_.K_, options_.D_, cv::Size(options_.image_width_, options_.image_width_));
+    
 }
 
+void Tracker::SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){
+    camera_left_  = std::move(camera_left);
+    camera_right_ = std::move(camera_right);
+}
 
 bool Tracker::TrackFrame(const Image& image){    
     curr_frame_ = Frame::CreateFrame(image);
+    if(last_frame_){
+        curr_frame_->pose_ = last_frame_->pose_ * relative_motion_;
+    }
 
     int num_track_last = TrackLastFrame();
     DetectFeatures();
 
     bool is_keyframe = IsKeyframe();
-    if(is_keyframe = false){
+    if(is_keyframe == false){
         return false;
     }
     
-    if(!EstimatorCurrentPose()){
-        return false;
-    }
+    // if(!EstimatorCurrentPose()){
+    //     return false;
+    // }
 
     curr_frame_->SetKeyFrame();
     
@@ -42,6 +48,7 @@ bool Tracker::TrackFrame(const Image& image){
 
     TriangulateNewPoints();
 
+    relative_motion_ = last_frame_->pose_.inverse() * curr_frame_->pose_;
     last_frame_ = curr_frame_;
 }
 
@@ -148,30 +155,25 @@ bool Tracker::EstimatorCurrentPose() {
     }
     
     // 初始估计值（使用上一帧位姿作为初始值）
+    
     cv::Mat rvec, tvec;
-    if (last_frame_) {
-        // 从SE3转换为旋转向量
-        Eigen::Matrix3d R = last_frame_->pose_.rotationMatrix();
-        cv::Mat R_cv(3, 3, CV_64F);
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j)
-                R_cv.at<double>(i, j) = R(i, j);
-        
-        cv::Rodrigues(R_cv, rvec);
-        
-        // 平移向量
-        Eigen::Vector3d t = last_frame_->pose_.translation();
-        tvec = cv::Mat(3, 1, CV_64F);
-        for (int i = 0; i < 3; ++i)
-            tvec.at<double>(i) = t(i);
-    } else {
-        // 如果没有上一帧，初始化为零
-        rvec = cv::Mat::zeros(3, 1, CV_64F);
-        tvec = cv::Mat::zeros(3, 1, CV_64F);
-    }
+    Eigen::Matrix3d R = curr_frame_->pose_.rotationMatrix();
+    cv::Mat R_cv(3, 3, CV_64F);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            R_cv.at<double>(i, j) = R(i, j);
+    
+    cv::Rodrigues(R_cv, rvec);
+    
+    // 平移向量
+    Eigen::Vector3d t = curr_frame_->pose_.translation();
+    tvec = cv::Mat(3, 1, CV_64F);
+    for (int i = 0; i < 3; ++i)
+        tvec.at<double>(i) = t(i);
+    
     
     // 使用EPnP方法进行位姿估计
-    bool pnp_success = cv::solvePnP(obj_points, img_points, options_.K_, options_.D_, rvec, tvec, 
+    bool pnp_success = cv::solvePnP(obj_points, img_points, camera_left_->cvK(), camera_left_->cvD(), rvec, tvec, 
                                    true, cv::SOLVEPNP_EPNP);
     
     if (!pnp_success) {
@@ -181,20 +183,20 @@ bool Tracker::EstimatorCurrentPose() {
     
     // 使用RANSAC进行优化
     std::vector<int> inliers;
-    cv::solvePnPRansac(obj_points, img_points, options_.K_, options_.D_, rvec, tvec, 
+    cv::solvePnPRansac(obj_points, img_points, camera_left_->cvK(), camera_left_->cvD(), rvec, tvec, 
                       true, 100, 8.0, 0.99, inliers, cv::SOLVEPNP_EPNP);
     
     LOG(INFO) << "PnP inliers: " << inliers.size() << "/" << obj_points.size();
     
     // 从旋转向量转换为旋转矩阵
-    cv::Mat R_cv;
-    cv::Rodrigues(rvec, R_cv);
+    cv::Mat R_cv2;
+    cv::Rodrigues(rvec, R_cv2);
     
     // 更新当前帧的位姿
     Eigen::Matrix3d R_eigen;
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)
-            R_eigen(i, j) = R_cv.at<double>(i, j);
+            R_eigen(i, j) = R_cv2.at<double>(i, j);
     
     Eigen::Vector3d t_eigen;
     for (int i = 0; i < 3; ++i)
@@ -207,7 +209,7 @@ bool Tracker::EstimatorCurrentPose() {
     for (int i : inliers) {
         std::vector<cv::Point3f> obj_point(1, obj_points[i]);
         std::vector<cv::Point2f> img_point_proj;
-        cv::projectPoints(obj_point, rvec, tvec,  options_.K_, options_.D_, img_point_proj);
+        cv::projectPoints(obj_point, rvec, tvec, camera_left_->cvK(), camera_left_->cvD(), img_point_proj);
         
         double dx = img_point_proj[0].x - img_points[i].x;
         double dy = img_point_proj[0].y - img_points[i].y;
@@ -305,7 +307,7 @@ int Tracker::FindFeaturesInRight(){
 }
 
 bool Tracker::BuildInitMap(){
-    std::vector<SE3> poses{curr_frame_->pose_, curr_frame_->pose_ * options_.Tc0c1_.inverse()};
+    std::vector<SE3> poses{camera_left_->pose(), camera_right_->pose()};
     size_t cnt_init_landmarks = 0;
     for (size_t i = 0; i < curr_frame_->features_left_.size(); ++i) {
         if (curr_frame_->features_right_[i] == nullptr) continue;
@@ -340,7 +342,8 @@ bool Tracker::BuildInitMap(){
 }
 
 void Tracker::TriangulateNewPoints(){
-    std::vector<SE3> poses{curr_frame_->pose_, curr_frame_->pose_ * options_.Tc0c1_.inverse()};
+    std::vector<SE3> poses{camera_left_->pose(), camera_right_->pose()};
+    SE3 current_pose_Twc = curr_frame_->pose_;
     int cnt_triangulated_pts = 0;
     for (size_t i = 0; i < curr_frame_->features_left_.size(); ++i) {
         if (curr_frame_->features_left_[i]->map_point_.expired() &&
@@ -357,6 +360,7 @@ void Tracker::TriangulateNewPoints(){
 
             if (math::triangulatePoint(poses, points, pworld) && pworld[2] > 0) {
                 auto new_map_point = MapPoint::CreateNewMappoint();
+                pworld = current_pose_Twc * pworld;
                 new_map_point->pos_ = pworld;
                 new_map_point->AddObservation(
                     curr_frame_->features_left_[i]);

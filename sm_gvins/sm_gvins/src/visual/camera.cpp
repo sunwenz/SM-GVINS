@@ -1,11 +1,10 @@
 #include "camera.h"
 
-Camera::Camera(const Mat& intrinsic, const Mat& distortion, const cv::Size &size)
+Camera::Camera(Mat intrinsic, Mat distortion, const cv::Size &size)
     : distortion_(std::move(distortion))
     , intrinsic_(std::move(intrinsic)) {
 
     fx_   = intrinsic_.at<double>(0, 0);
-    skew_ = intrinsic_.at<double>(0, 1);
     cx_   = intrinsic_.at<double>(0, 2);
     fy_   = intrinsic_.at<double>(1, 1);
     cy_   = intrinsic_.at<double>(1, 2);
@@ -23,16 +22,16 @@ Camera::Camera(const Mat& intrinsic, const Mat& distortion, const cv::Size &size
     initUndistortRectifyMap(intrinsic_, distortion_, Mat(), intrinsic_, size, CV_16SC2, undissrc_, undisdst_);
 }
 
-Camera::Ptr Camera::createCamera(const Mat& intrinsic, const Mat& distortion, const cv::Size &size) {
-    return std::make_shared<Camera>(intrinsic, distortion, size);
+void Camera::undistortImage(const Mat &src, Mat &dst) {
+    cv::remap(src, dst, undissrc_, undisdst_, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
 }
 
 Vec3d Camera::world2camera(const Vec3d &p_w, const SE3 &T_c_w) {
-    return T_c_w * p_w;
+    return pose_ * T_c_w * p_w;
 }
 
 Vec3d Camera::camera2world(const Vec3d &p_c, const SE3 &T_c_w) {
-    return T_c_w.inverse() * p_c;
+    return T_c_w.inverse() * pose_inv_ * p_c;
 }
 
 Vec2d Camera::camera2pixel(const Vec3d &p_c) {

@@ -28,25 +28,35 @@ inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
         options.estimator_options_.tracker_options_.image_width_  = config["image_width"].as<int>();
         options.estimator_options_.tracker_options_.image_height_ = config["image_height"].as<int>();
 
-        auto proj = config["projection_parameters"];
-        auto dist = config["distortion_parameters"];
+        // === 读取 cam0 内参和畸变参数 ===
+        auto cam0_proj = config["cam0"]["projection_parameters"];
+        auto cam0_dist = config["cam0"]["distortion_parameters"];
+        if (!cam0_proj || !cam0_dist)
+            throw std::runtime_error("Missing cam0 projection_parameters or distortion_parameters.");
 
-        if (!proj || !dist)
-            throw std::runtime_error("Missing projection_parameters or distortion_parameters.");
+        options.estimator_options_.tracker_options_.K0_ = (cv::Mat_<double>(3, 3) <<
+            cam0_proj["fx"].as<double>(), 0, cam0_proj["cx"].as<double>(),
+            0, cam0_proj["fy"].as<double>(), cam0_proj["cy"].as<double>(),
+            0, 0, 1);
 
-        double fx = proj["fx"].as<double>();
-        double fy = proj["fy"].as<double>();
-        double cx = proj["cx"].as<double>();
-        double cy = proj["cy"].as<double>();
-        options.estimator_options_.tracker_options_.K_ = (cv::Mat_<double>(3, 3) << fx, 0, cx,
-                                                                                   0, fy, cy,
-                                                                                   0, 0, 1);
+        options.estimator_options_.tracker_options_.D0_ = (cv::Mat_<double>(1, 4) <<
+            cam0_dist["k1"].as<double>(), cam0_dist["k2"].as<double>(),
+            cam0_dist["p1"].as<double>(), cam0_dist["p2"].as<double>());
 
-        double k1 = dist["k1"].as<double>();
-        double k2 = dist["k2"].as<double>();
-        double p1 = dist["p1"].as<double>();
-        double p2 = dist["p2"].as<double>();
-        options.estimator_options_.tracker_options_.D_ = (cv::Mat_<double>(1, 4) << k1, k2, p1, p2);
+        // === 读取 cam1 内参和畸变参数 ===
+        auto cam1_proj = config["cam1"]["projection_parameters"];
+        auto cam1_dist = config["cam1"]["distortion_parameters"];
+        if (!cam1_proj || !cam1_dist)
+            throw std::runtime_error("Missing cam1 projection_parameters or distortion_parameters.");
+
+        options.estimator_options_.tracker_options_.K1_ = (cv::Mat_<double>(3, 3) <<
+            cam1_proj["fx"].as<double>(), 0, cam1_proj["cx"].as<double>(),
+            0, cam1_proj["fy"].as<double>(), cam1_proj["cy"].as<double>(),
+            0, 0, 1);
+
+        options.estimator_options_.tracker_options_.D1_ = (cv::Mat_<double>(1, 4) <<
+            cam1_dist["k1"].as<double>(), cam1_dist["k2"].as<double>(),
+            cam1_dist["p1"].as<double>(), cam1_dist["p2"].as<double>());
 
         std::vector<double> Tbc0_data = config["body_T_cam0"]["data"].as<std::vector<double>>();
         std::vector<double> Tbc1_data = config["body_T_cam1"]["data"].as<std::vector<double>>();

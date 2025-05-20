@@ -26,12 +26,14 @@ public:
     struct Options{
         int image_width_;
         int image_height_;
-        cv::Mat K_;  // Camera intrinsic matrix
-        cv::Mat D_;  // Distortion coeffs
+        cv::Mat K0_, K1_;
+        cv::Mat D0_, D1_;
         SE3 Tc0c1_;
     };
     
     Tracker(MapPtr map, const Options& options = Options());
+
+    void SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right);
 
     bool TrackFrame(const Image& image);
 
@@ -58,6 +60,8 @@ private:
     Camera::Ptr camera_left_  = nullptr;
     Camera::Ptr camera_right_ = nullptr;
 
+    SE3 relative_motion_;  // 当前帧与上一帧的相对运动，用于估计当前帧pose初值
+    
     MapPtr map_ = nullptr;
 
     Options options_;

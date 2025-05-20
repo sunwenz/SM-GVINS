@@ -10,19 +10,31 @@
 Estimator::Estimator(const Options& options)
     : options_(std::move(options))
 {
+    camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K_, options_.tracker_options_.D_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
+    camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K_, options_.tracker_options_.D_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
+    camera_right_->pose_ = options_.tracker_options_.Tc0c1_;
+    camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_.inverse();
+
     map_ = std::make_shared<Map>();
     tracker_ = std::make_shared<Tracker>(map_, options_.tracker_options_);
+
+    tracker_->SetCameras(camera_left_, camera_right_);
 }
 
 void Estimator::AddImage(const Image& image){
+    Image un_image;
+    un_image.timestamp_ = image.timestamp_;
+    camera_left_->undistortImage(image.img_, un_image.img_);
+    camera_right_->undistortImage(image.img_right_, un_image.img_right_);
+
     if(is_first_image_){
-        if(tracker_->Initilize(image)){
+        if(tracker_->Initilize(un_image)){
             is_first_image_ = false;
         }
         return;
     }
 
-    bool is_keyframe = tracker_->TrackFrame(image);
+    bool is_keyframe = tracker_->TrackFrame(un_image);
     if(is_keyframe){
         Map::KeyframesType active_kfs = map_->GetActiveKeyFrames();
         Map::LandmarksType active_landmarks = map_->GetActiveMapPoints();
@@ -62,9 +74,9 @@ void Estimator::Optimize(Map::KeyframesType& keyframes, Map::LandmarksType& land
     // 路标顶点，使用路标id索引
     std::map<unsigned long, VertexXYZ *> vertices_landmarks;
 
-    // K 和左右外参
-    Mat3d K;
-    cv::cv2eigen(options_.tracker_options_.K_, K);
+    Mat3d K = camera_left_->K();
+    SE3 left_ext = camera_left_->pose();
+    SE3 right_ext = camera_right_->pose();
 
     // edges
     int index = 1;
@@ -82,9 +94,9 @@ void Estimator::Optimize(Map::KeyframesType& keyframes, Map::LandmarksType& land
             auto frame = feat->frame_.lock();
             EdgeProjection *edge = nullptr;
             if (feat->is_on_left_image_) {
-                edge = new EdgeProjection(K, SE3());
+                edge = new EdgeProjection(K, left_ext);
             } else {
-                edge = new EdgeProjection(K, options_.tracker_options_.Tc0c1_);
+                edge = new EdgeProjection(K , right_ext);
             }
 
             // 如果landmark还没有被加入优化，则新加一个顶点
