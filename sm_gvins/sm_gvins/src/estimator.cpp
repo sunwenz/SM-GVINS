@@ -1,5 +1,7 @@
 #include "estimator.h"
 #include "g2o_types.h"
+#include "utils.h"
+
 #include <glog/logging.h>
 #include <opencv2/core/eigen.hpp>  
 #include <g2o/core/block_solver.h>
@@ -7,8 +9,8 @@
 #include <g2o/core/robust_kernel.h>
 #include <g2o/solvers/eigen/linear_solver_eigen.h>
 
-Estimator::Estimator(const Options& options)
-    : options_(std::move(options))
+Estimator::Estimator(std::shared_ptr<std::ofstream> f_out, const Options& options)
+    : f_out_(std::move(f_out)), options_(std::move(options))
 {
     camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
     camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
@@ -41,7 +43,10 @@ void Estimator::AddImage(const Image& image){
         Optimize(active_kfs, active_landmarks);
     }else{
         LOG(INFO) << "the image in stamp: " << image.timestamp_ << " is not keyframe";
+        return;
     }
+
+    utils::save_result(*f_out_, this->GetNavState());
 }
 
 void Estimator::Optimize(Map::KeyframesType& keyframes, Map::LandmarksType& landmarks){
@@ -137,40 +142,40 @@ void Estimator::Optimize(Map::KeyframesType& keyframes, Map::LandmarksType& land
     optimizer.initializeOptimization();
     optimizer.optimize(10);
 
-    int cnt_outlier = 0, cnt_inlier = 0;
-    int iteration = 0;
-    while (iteration < 5) {
-        cnt_outlier = 0;
-        cnt_inlier = 0;
-        // determine if we want to adjust the outlier threshold
-        for (auto &ef : edges_and_features) {
-            if (ef.first->chi2() > chi2_th) {
-                cnt_outlier++;
-            } else {
-                cnt_inlier++;
-            }
-        }
-        double inlier_ratio = cnt_inlier / double(cnt_inlier + cnt_outlier);
-        if (inlier_ratio > 0.5) {
-            break;
-        } else {
-            chi2_th *= 2;
-            iteration++;
-        }
-    }
+    // int cnt_outlier = 0, cnt_inlier = 0;
+    // int iteration = 0;
+    // while (iteration < 5) {
+    //     cnt_outlier = 0;
+    //     cnt_inlier = 0;
+    //     // determine if we want to adjust the outlier threshold
+    //     for (auto &ef : edges_and_features) {
+    //         if (ef.first->chi2() > chi2_th) {
+    //             cnt_outlier++;
+    //         } else {
+    //             cnt_inlier++;
+    //         }
+    //     }
+    //     double inlier_ratio = cnt_inlier / double(cnt_inlier + cnt_outlier);
+    //     if (inlier_ratio > 0.5) {
+    //         break;
+    //     } else {
+    //         chi2_th *= 2;
+    //         iteration++;
+    //     }
+    // }
 
-    for (auto &ef : edges_and_features) {
-        if (ef.first->chi2() > chi2_th) {
-            ef.second->is_outlier_ = true;
-            // remove the observation
-            ef.second->map_point_.lock()->RemoveObservation(ef.second);
-        } else {
-            ef.second->is_outlier_ = false;
-        }
-    }
+    // for (auto &ef : edges_and_features) {
+    //     if (ef.first->chi2() > chi2_th) {
+    //         ef.second->is_outlier_ = true;
+    //         // remove the observation
+    //         ef.second->map_point_.lock()->RemoveObservation(ef.second);
+    //     } else {
+    //         ef.second->is_outlier_ = false;
+    //     }
+    // }
 
-    LOG(INFO) << "Outlier/Inlier in optimization: " << cnt_outlier << "/"
-              << cnt_inlier;
+    // LOG(INFO) << "Outlier/Inlier in optimization: " << cnt_outlier << "/"
+    //           << cnt_inlier;
 
     // Set pose and lanrmark position
     for (auto &v : vertices) {

@@ -45,24 +45,6 @@ class SM_GVINS{
 
     cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg);
 
-    void save_vec3(std::ofstream& fout, const Vec3d& v){ 
-        fout << v[0] << " " << v[1] << " " << v[2] << " "; 
-    };
-
-    void save_quat(std::ofstream& fout, const Quatd& q) {
-        fout << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " ";
-    };
-
-    void save_result(std::ofstream& fout, const NavStated& save_state) {
-        fout << std::setprecision(18) << save_state.timestamp_ << " " << std::setprecision(9);
-        save_vec3(fout, save_state.p_);
-        save_quat(fout, save_state.R_.unit_quaternion());
-        save_vec3(fout, save_state.v_);
-        save_vec3(fout, save_state.bg_);
-        save_vec3(fout, save_state.ba_);
-        fout << std::endl;
-    };
-
     Options options_;
 
     ros::Subscriber image0_sub_;
@@ -76,8 +58,8 @@ class SM_GVINS{
     std::thread sync_thread_;
 
     
-    Estimator estimator_;
+    std::shared_ptr<Estimator> estimator_ = nullptr;
     DrawerRviz drawer_;
 
-    std::ofstream f_out_;
+    std::shared_ptr<std::ofstream> f_out_ = nullptr;
 };

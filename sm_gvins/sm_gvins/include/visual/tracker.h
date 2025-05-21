@@ -41,9 +41,13 @@ public:
 private:
     bool IsKeyframe();
     
+    void InsertKeyframe();
+
     int TrackLastFrame();
 
     bool EstimatorCurrentPose();
+
+    int OptimizeInitPose();
 
     void SetObservationsForKeyFrame();
 

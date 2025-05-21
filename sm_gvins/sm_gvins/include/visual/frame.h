@@ -19,7 +19,7 @@ struct Frame {
     unsigned long keyframe_id_ = 0;  // id of key frame
     bool is_keyframe_ = false;       // 是否为关键帧
     double timestamp_;              // 时间戳，暂不使用
-    SE3 pose_;                       // Tcw 形式Pose
+    SE3 pose_;                       // Twc 形式Pose
     cv::Mat left_img_, right_img_;   // stereo images
 
     // extracted features in left image

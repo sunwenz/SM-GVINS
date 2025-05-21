@@ -109,12 +109,18 @@ class EdgeProjection
         const VertexPose *v0 = static_cast<VertexPose *>(_vertices[0]);
         const VertexXYZ *v1 = static_cast<VertexXYZ *>(_vertices[1]);
         SE3 T = v0->estimate();
-        LOG(INFO) << "_K:\n" << _K;
-        LOG(INFO) << "T mat:\n" << T.rotationMatrix();
-        LOG(INFO) << "T tran:" << T.translation().transpose();
-        LOG(INFO) << "v1:" << v1->estimate().transpose();
+        
+        // LOG(INFO) << "_K:\n" << _K;
+        // LOG(INFO) << "T mat:\n" << T.rotationMatrix();
+        // LOG(INFO) << "T tran:" << T.translation().transpose();
+        // LOG(INFO) << "v1:" << v1->estimate().transpose();
+
         Vec3d pos_pixel = _K * (_cam_ext * (T * v1->estimate()));
         pos_pixel /= pos_pixel[2];
+        
+        // LOG(INFO) << "_measurement:" << _measurement.transpose();
+        // LOG(INFO) << "pos_pixel.head<2>():" << pos_pixel.head<2>().transpose();
+
         _error = _measurement - pos_pixel.head<2>();
     }
 

@@ -6,6 +6,12 @@
 #include "timer.h"
 #include "math.h"
 
+#include "g2o_types.h"
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/core/robust_kernel.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+
 Tracker::Tracker(MapPtr map, const Options& options)
     : map_(std::move(map)), options_(std::move(options))
 {
@@ -20,36 +26,44 @@ void Tracker::SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){
 bool Tracker::TrackFrame(const Image& image){    
     curr_frame_ = Frame::CreateFrame(image);
     if(last_frame_){
-        curr_frame_->pose_ = last_frame_->pose_ * relative_motion_;
+        curr_frame_->pose_ = relative_motion_ * last_frame_->pose_;
     }
 
     int num_track_last = TrackLastFrame();
-    DetectFeatures();
-
-    bool is_keyframe = IsKeyframe();
-    if(is_keyframe == false){
+    int tracking_inliers = OptimizeInitPose();
+    if(tracking_inliers <= 20){
         return false;
     }
-    
     // if(!EstimatorCurrentPose()){
     //     return false;
     // }
 
+    // bool is_keyframe = IsKeyframe();
+    // if(is_keyframe == false){
+    //     return false;
+    // }
+    
+    InsertKeyframe();
+
+    relative_motion_ = curr_frame_->pose_ * last_frame_->pose_.inverse();
+    last_frame_ = curr_frame_;
+}
+
+void Tracker::InsertKeyframe(){
     curr_frame_->SetKeyFrame();
-    
-    SetObservationsForKeyFrame();
-    
-    FindFeaturesInRight();
-    
+
     map_->InsertKeyFrame(curr_frame_);
-    
+
     LOG(INFO) << "Set frame " << curr_frame_->id_ << " as keyframe "
               << curr_frame_->keyframe_id_;
 
-    TriangulateNewPoints();
+    SetObservationsForKeyFrame();
 
-    relative_motion_ = last_frame_->pose_.inverse() * curr_frame_->pose_;
-    last_frame_ = curr_frame_;
+    DetectFeatures();
+    
+    FindFeaturesInRight();
+    
+    TriangulateNewPoints();
 }
 
 void Tracker::SetObservationsForKeyFrame() {
@@ -135,91 +149,143 @@ int Tracker::TrackLastFrame(){
     return good_num_pts;
 }
 
-bool Tracker::EstimatorCurrentPose() {
-    std::vector<cv::Point3f> obj_points;  
-    std::vector<cv::Point2f> img_points;  
+int Tracker::OptimizeInitPose(){
+    // setup g2o
+    using BlockSolverType = g2o::BlockSolverX;
+    using LinearSolverType = g2o::LinearSolverEigen<BlockSolverType::PoseMatrixType>;
     
-    // 收集所有有对应地图点的特征点
+    auto solver = new g2o::OptimizationAlgorithmLevenberg(
+        g2o::make_unique<BlockSolverType>(
+            g2o::make_unique<LinearSolverType>()));
+    g2o::SparseOptimizer optimizer;
+    optimizer.setAlgorithm(solver);
+
+    // vertex
+    VertexPose *vertex_pose = new VertexPose();  // camera vertex_pose
+    vertex_pose->setId(0);
+    vertex_pose->setEstimate(curr_frame_->pose_);
+    optimizer.addVertex(vertex_pose);
+
+    // K
+    Mat3d K = camera_left_->K();
+
+    // edges
+    int index = 1;
+    std::vector<EdgeProjectionPoseOnly *> edges;
+    std::vector<FeaturePtr> features;
+    for (size_t i = 0; i < curr_frame_->features_left_.size(); ++i) {
+        auto mp = curr_frame_->features_left_[i]->map_point_.lock();
+        if (mp) {
+            features.push_back(curr_frame_->features_left_[i]);
+            EdgeProjectionPoseOnly *edge =
+                new EdgeProjectionPoseOnly(mp->pos_, K);
+            edge->setId(index);
+            edge->setVertex(0, vertex_pose);
+            edge->setMeasurement(
+                Vec2d(curr_frame_->features_left_[i]->pixel_pt_.pt.x, curr_frame_->features_left_[i]->pixel_pt_.pt.y));
+            edge->setInformation(Eigen::Matrix2d::Identity());
+            edge->setRobustKernel(new g2o::RobustKernelHuber);
+            edges.push_back(edge);
+            optimizer.addEdge(edge);
+            index++;
+        }
+    }
+
+    // estimate the Pose the determine the outliers
+    const double chi2_th = 5.991;
+    int cnt_outlier = 0;
+    for (int iteration = 0; iteration < 4; ++iteration) {
+        vertex_pose->setEstimate(curr_frame_->pose_);
+        optimizer.initializeOptimization();
+        optimizer.optimize(10);
+        cnt_outlier = 0;
+
+        // count the outliers
+        for (size_t i = 0; i < edges.size(); ++i) {
+            auto e = edges[i];
+            if (features[i]->is_outlier_) {
+                e->computeError();
+            }
+            if (e->chi2() > chi2_th) {
+                features[i]->is_outlier_ = true;
+                e->setLevel(1);
+                cnt_outlier++;
+            } else {
+                features[i]->is_outlier_ = false;
+                e->setLevel(0);
+            };
+
+            if (iteration == 2) {
+                e->setRobustKernel(nullptr);
+            }
+        }
+    }
+
+    LOG(INFO) << "Outlier/Inlier in pose estimating: " << cnt_outlier << "/"
+              << features.size() - cnt_outlier;
+    // Set pose and outlier
+    curr_frame_->pose_ = vertex_pose->estimate();
+
+    LOG(INFO) << "Current Pose = \n" << curr_frame_->pose_.matrix();
+
+    for (auto &feat : features) {
+        if (feat->is_outlier_) {
+            feat->map_point_.reset();
+            feat->is_outlier_ = false;  // maybe we can still use it in future
+        }
+    }
+    return features.size() - cnt_outlier;
+}
+
+bool Tracker::EstimatorCurrentPose() {
+    std::vector<cv::Point3f> obj_points;
+    std::vector<cv::Point2f> img_points;
+
     for (auto& feat : curr_frame_->features_left_) {
         if (feat && !feat->map_point_.expired()) {
             auto mp = feat->map_point_.lock();
-            obj_points.push_back(cv::Point3f(mp->pos_[0], mp->pos_[1], mp->pos_[2]));
+            obj_points.emplace_back(mp->pos_[0], mp->pos_[1], mp->pos_[2]);
             img_points.push_back(feat->pixel_pt_.pt);
         }
     }
-    
-    // 确保有足够的点进行PnP求解
+
     if (obj_points.size() < 4) {
         LOG(WARNING) << "Not enough points for PnP estimation: " << obj_points.size();
         return false;
     }
-    
-    // 初始估计值（使用上一帧位姿作为初始值）
-    
+
     cv::Mat rvec, tvec;
-    Eigen::Matrix3d R = curr_frame_->pose_.rotationMatrix();
-    cv::Mat R_cv(3, 3, CV_64F);
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            R_cv.at<double>(i, j) = R(i, j);
-    
-    cv::Rodrigues(R_cv, rvec);
-    
-    // 平移向量
-    Eigen::Vector3d t = curr_frame_->pose_.translation();
-    tvec = cv::Mat(3, 1, CV_64F);
-    for (int i = 0; i < 3; ++i)
-        tvec.at<double>(i) = t(i);
-    
-    
-    // 使用EPnP方法进行位姿估计
-    bool pnp_success = cv::solvePnP(obj_points, img_points, camera_left_->cvK(), camera_left_->cvD(), rvec, tvec, 
-                                   true, cv::SOLVEPNP_EPNP);
-    
-    if (!pnp_success) {
-        LOG(WARNING) << "PnP estimation failed!";
+    std::vector<int> inliers;
+    bool pnp_success = cv::solvePnPRansac(obj_points, img_points, camera_left_->cvK(), camera_left_->cvD(),
+                                          rvec, tvec, true, 100, 8.0, 0.99, inliers, cv::SOLVEPNP_EPNP);
+    if (!pnp_success || inliers.size() < 4) {
+        LOG(WARNING) << "PnPRansac failed!";
         return false;
     }
-    
-    // 使用RANSAC进行优化
-    std::vector<int> inliers;
-    cv::solvePnPRansac(obj_points, img_points, camera_left_->cvK(), camera_left_->cvD(), rvec, tvec, 
-                      true, 100, 8.0, 0.99, inliers, cv::SOLVEPNP_EPNP);
-    
-    LOG(INFO) << "PnP inliers: " << inliers.size() << "/" << obj_points.size();
-    
-    // 从旋转向量转换为旋转矩阵
-    cv::Mat R_cv2;
-    cv::Rodrigues(rvec, R_cv2);
-    
-    // 更新当前帧的位姿
-    Eigen::Matrix3d R_eigen;
-    for (int i = 0; i < 3; ++i)
+
+    cv::Mat R_cv;
+    cv::Rodrigues(rvec, R_cv);
+    Eigen::Matrix3d R;
+    Eigen::Vector3d t;
+    for (int i = 0; i < 3; ++i) {
+        t(i) = tvec.at<double>(i);
         for (int j = 0; j < 3; ++j)
-            R_eigen(i, j) = R_cv2.at<double>(i, j);
-    
-    Eigen::Vector3d t_eigen;
-    for (int i = 0; i < 3; ++i)
-        t_eigen(i) = tvec.at<double>(i);
-    
-    curr_frame_->pose_ = SE3(R_eigen, t_eigen);
-    
-    // 评估重投影误差
-    double reproj_error = 0.0;
+            R(i, j) = R_cv.at<double>(i, j);
+    }
+    curr_frame_->pose_ = SE3(R, t);
+
+    // reprojection error
+    double total_error = 0.0;
     for (int i : inliers) {
-        std::vector<cv::Point3f> obj_point(1, obj_points[i]);
-        std::vector<cv::Point2f> img_point_proj;
-        cv::projectPoints(obj_point, rvec, tvec, camera_left_->cvK(), camera_left_->cvD(), img_point_proj);
-        
-        double dx = img_point_proj[0].x - img_points[i].x;
-        double dy = img_point_proj[0].y - img_points[i].y;
-        reproj_error += std::sqrt(dx*dx + dy*dy);
+        std::vector<cv::Point2f> projected;
+        cv::projectPoints(std::vector<cv::Point3f>{obj_points[i]}, rvec, tvec, camera_left_->cvK(), camera_left_->cvD(), projected);
+        double dx = projected[0].x - img_points[i].x;
+        double dy = projected[0].y - img_points[i].y;
+        total_error += std::sqrt(dx * dx + dy * dy);
     }
-    
-    if (inliers.size() > 0) {
-        reproj_error /= inliers.size();
-        LOG(INFO) << "Average reprojection error: " << reproj_error << " pixels";
-    }
+
+    LOG(INFO) << "PnP inliers: " << inliers.size() << "/" << obj_points.size();
+    LOG(INFO) << "Average reprojection error: " << (total_error / inliers.size()) << " pixels";
     return true;
 }
 
@@ -273,7 +339,7 @@ int Tracker::FindFeaturesInRight(){
         if (mp) {
             // use projected points as initial guess
             auto px =
-                camera_right_->world2pixel(mp->pos_, curr_frame_->pose_ * options_.Tc0c1_);
+                camera_right_->world2pixel(mp->pos_, curr_frame_->pose_);
             kps_right.push_back(cv::Point2f(px[0], px[1]));
         } else {
             // use same pixel in left iamge
@@ -343,7 +409,7 @@ bool Tracker::BuildInitMap(){
 
 void Tracker::TriangulateNewPoints(){
     std::vector<SE3> poses{camera_left_->pose(), camera_right_->pose()};
-    SE3 current_pose_Twc = curr_frame_->pose_;
+    SE3 current_pose_Twc = curr_frame_->pose_.inverse();
     int cnt_triangulated_pts = 0;
     for (size_t i = 0; i < curr_frame_->features_left_.size(); ++i) {
         if (curr_frame_->features_left_[i]->map_point_.expired() &&

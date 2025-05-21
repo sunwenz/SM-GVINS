@@ -12,7 +12,7 @@ class Estimator{
         Tracker::Options tracker_options_;
     };
 
-    Estimator(const Options& options = Options());
+    Estimator(std::shared_ptr<std::ofstream> f_out, const Options& options = Options());
     
     void AddImage(const Image& image);
 
@@ -27,4 +27,5 @@ class Estimator{
     TrackerPtr tracker_ = nullptr;
     MapPtr map_ = nullptr;
     Camera::Ptr camera_left_ = nullptr, camera_right_ = nullptr;
+    std::shared_ptr<std::ofstream> f_out_;
 };
