@@ -42,7 +42,8 @@ def plot_trajectories(file_paths, labels=None, title="Trajectory Plot"):
 # 示例用法
 if __name__ == "__main__":
     files = [
-        './output/euroc_state.txt',
+        './output/kitti00.txt',
+        #  '/media/sunwenz/sunwenzSE/KITTYdatasets/2011_10_03_drive_0027/2011_10_03/2011_10_03_drive_0027_sync/result/truth_result.txt',
         # './data/navstate.txt',
     ]
     plot_trajectories(files, labels=["vins_visual"])

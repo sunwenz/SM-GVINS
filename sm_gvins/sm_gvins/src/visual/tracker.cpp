@@ -121,8 +121,16 @@ bool Tracker::IsKeyframe(){
 int Tracker::TrackLastFrame(){
     std::vector<cv::Point2f> kps_last, kps_curr;
     for(auto& kp : last_frame_->features_left_){
-        kps_last.push_back(kp->pixel_pt_.pt);
-        kps_curr.push_back(kp->pixel_pt_.pt);
+        if(kp->map_point_.lock()){
+            auto mp = kp->map_point_.lock();
+            auto px = 
+                camera_left_->world2pixel(mp->pos_, curr_frame_->pose_);
+            kps_last.push_back(kp->pixel_pt_.pt);
+            kps_curr.push_back(cv::Point2f(px[0], px[1]));
+        }else{
+            kps_last.push_back(kp->pixel_pt_.pt);
+            kps_curr.push_back(kp->pixel_pt_.pt);
+        }
     }
 
     std::vector<uchar> status;

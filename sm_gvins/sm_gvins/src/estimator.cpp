@@ -14,8 +14,8 @@ Estimator::Estimator(std::shared_ptr<std::ofstream> f_out, const Options& option
 {
     camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
     camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
-    camera_right_->pose_ = options_.tracker_options_.Tc0c1_;
-    camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_.inverse();
+    camera_right_->pose_ = options_.tracker_options_.Tc0c1_.inverse();
+    camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_;
 
     map_ = std::make_shared<Map>();
     tracker_ = std::make_shared<Tracker>(map_, options_.tracker_options_);
@@ -32,6 +32,9 @@ void Estimator::AddImage(const Image& image){
     if(is_first_image_){
         if(tracker_->Initilize(un_image)){
             is_first_image_ = false;
+            Map::KeyframesType active_kfs = map_->GetActiveKeyFrames();
+            Map::LandmarksType active_landmarks = map_->GetActiveMapPoints();
+            Optimize(active_kfs, active_landmarks);
         }
         return;
     }
