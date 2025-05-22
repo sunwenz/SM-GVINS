@@ -62,6 +62,20 @@ file(GLOB VISUAL_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/sm_gvins/src/visual/*.cpp
 )
 
+add_executable(sm_gvins_kitti 
+  test_kitti.cpp
+  ${VISUAL_SRC}
+  sm_gvins/src/estimator.cpp
+)
+
+target_link_libraries(sm_gvins_kitti
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${glog_lib}
+  ${g2o_libs}
+  yaml-cpp
+)
+
 add_executable(sm_gvins_node 
   test_fronted.cpp
   ${VISUAL_SRC}
