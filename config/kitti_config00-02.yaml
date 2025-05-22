@@ -2,6 +2,7 @@
 image0_topic: "/kitti/camera_gray_left/image_raw"
 image1_topic: "/kitti/camera_gray_right/image_raw"
 output_path: "/home/shentao/code/sm_gvins_ws/src/output/kitti00.txt"
+calib_path: "/media/shentao/sunwenzSE/KITTI/dataset/sequences/00/calib.txt"
 
 image_width: 1241
 image_height: 376

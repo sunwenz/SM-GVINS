@@ -7,6 +7,8 @@
 class Estimator{
    public:
     struct Options{
+        Mat3d K_[2];
+        Vec3d t_[2];
         SE3 Tbc0_;
         SE3 Tbc1_;
         Tracker::Options tracker_options_;

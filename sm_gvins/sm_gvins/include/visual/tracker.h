@@ -19,7 +19,7 @@ public:
     static constexpr int MAX_CNT               = 200;
     static constexpr int MIN_DIST              = 30;
     static constexpr int MIN_FEATURES          = 50; // 最小特征点数量
-    static constexpr int MIN_FEATURES_INIT     = 100; // 最小特征点数量
+    static constexpr int MIN_FEATURES_INIT     = 50; // 最小特征点数量
     static constexpr double PARALLAX_THRESHOLD = 10.0; // 平均视差阈值（像素）
     static constexpr double MIN_TIME_GAP       = 0.5; // 关键帧最小时间间隔（秒）
 
@@ -67,7 +67,8 @@ private:
     SE3 relative_motion_;  // 当前帧与上一帧的相对运动，用于估计当前帧pose初值
     
     MapPtr map_ = nullptr;
-
+    cv::Ptr<cv::GFTTDetector> gftt_;
+    
     Options options_;
 };
 using TrackerPtr = std::shared_ptr<Tracker>;

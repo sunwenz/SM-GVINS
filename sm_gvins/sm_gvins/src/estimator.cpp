@@ -12,10 +12,21 @@
 Estimator::Estimator(std::shared_ptr<std::ofstream> f_out, const Options& options)
     : f_out_(std::move(f_out)), options_(std::move(options))
 {
-    camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
-    camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
-    camera_right_->pose_ = options_.tracker_options_.Tc0c1_.inverse();
-    camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_;
+    // camera_left_  = std::make_shared<Camera>(options_.tracker_options_.K0_, options_.tracker_options_.D0_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
+    // camera_left_->pose_     = SE3().inverse();
+    // camera_left_->pose_inv_ = SE3();
+
+    // camera_right_ = std::make_shared<Camera>(options_.tracker_options_.K1_, options_.tracker_options_.D1_, cv::Size(options_.tracker_options_.image_width_, options_.tracker_options_.image_height_));
+    // camera_right_->pose_ = options_.tracker_options_.Tc0c1_;
+    // camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_.inverse();
+
+    camera_left_ = std::make_shared<Camera>(options_.K_[0](0, 0), options_.K_[0](1, 1),
+                                             options_.K_[0](0, 2), options_.K_[0](1, 2),
+                                            options_.t_[0].norm(), SE3(SO3(), options_.t_[0]));
+
+    camera_right_ = std::make_shared<Camera>(options_.K_[1](0, 0), options_.K_[1](1, 1),
+                                             options_.K_[1](0, 2), options_.K_[1](1, 2),
+                                             options_.t_[1].norm(), SE3(SO3(), options_.t_[1]));
 
     map_ = std::make_shared<Map>();
     tracker_ = std::make_shared<Tracker>(map_, options_.tracker_options_);
@@ -24,13 +35,13 @@ Estimator::Estimator(std::shared_ptr<std::ofstream> f_out, const Options& option
 }
 
 void Estimator::AddImage(const Image& image){
-    Image un_image;
-    un_image.timestamp_ = image.timestamp_;
-    camera_left_->undistortImage(image.img_, un_image.img_);
-    camera_right_->undistortImage(image.img_right_, un_image.img_right_);
+    // Image un_image;
+    // un_image.timestamp_ = image.timestamp_;
+    // camera_left_->undistortImage(image.img_, un_image.img_);
+    // camera_right_->undistortImage(image.img_right_, un_image.img_right_);
 
     if(is_first_image_){
-        if(tracker_->Initilize(un_image)){
+        if(tracker_->Initilize(image)){
             is_first_image_ = false;
             Map::KeyframesType active_kfs = map_->GetActiveKeyFrames();
             Map::LandmarksType active_landmarks = map_->GetActiveMapPoints();
@@ -39,7 +50,7 @@ void Estimator::AddImage(const Image& image){
         return;
     }
 
-    bool is_keyframe = tracker_->TrackFrame(un_image);
+    bool is_keyframe = tracker_->TrackFrame(image);
     if(is_keyframe){
         Map::KeyframesType active_kfs = map_->GetActiveKeyFrames();
         Map::LandmarksType active_landmarks = map_->GetActiveMapPoints();
@@ -145,40 +156,40 @@ void Estimator::Optimize(Map::KeyframesType& keyframes, Map::LandmarksType& land
     optimizer.initializeOptimization();
     optimizer.optimize(10);
 
-    // int cnt_outlier = 0, cnt_inlier = 0;
-    // int iteration = 0;
-    // while (iteration < 5) {
-    //     cnt_outlier = 0;
-    //     cnt_inlier = 0;
-    //     // determine if we want to adjust the outlier threshold
-    //     for (auto &ef : edges_and_features) {
-    //         if (ef.first->chi2() > chi2_th) {
-    //             cnt_outlier++;
-    //         } else {
-    //             cnt_inlier++;
-    //         }
-    //     }
-    //     double inlier_ratio = cnt_inlier / double(cnt_inlier + cnt_outlier);
-    //     if (inlier_ratio > 0.5) {
-    //         break;
-    //     } else {
-    //         chi2_th *= 2;
-    //         iteration++;
-    //     }
-    // }
+    int cnt_outlier = 0, cnt_inlier = 0;
+    int iteration = 0;
+    while (iteration < 5) {
+        cnt_outlier = 0;
+        cnt_inlier = 0;
+        // determine if we want to adjust the outlier threshold
+        for (auto &ef : edges_and_features) {
+            if (ef.first->chi2() > chi2_th) {
+                cnt_outlier++;
+            } else {
+                cnt_inlier++;
+            }
+        }
+        double inlier_ratio = cnt_inlier / double(cnt_inlier + cnt_outlier);
+        if (inlier_ratio > 0.5) {
+            break;
+        } else {
+            chi2_th *= 2;
+            iteration++;
+        }
+    }
 
-    // for (auto &ef : edges_and_features) {
-    //     if (ef.first->chi2() > chi2_th) {
-    //         ef.second->is_outlier_ = true;
-    //         // remove the observation
-    //         ef.second->map_point_.lock()->RemoveObservation(ef.second);
-    //     } else {
-    //         ef.second->is_outlier_ = false;
-    //     }
-    // }
+    for (auto &ef : edges_and_features) {
+        if (ef.first->chi2() > chi2_th) {
+            ef.second->is_outlier_ = true;
+            // remove the observation
+            ef.second->map_point_.lock()->RemoveObservation(ef.second);
+        } else {
+            ef.second->is_outlier_ = false;
+        }
+    }
 
-    // LOG(INFO) << "Outlier/Inlier in optimization: " << cnt_outlier << "/"
-    //           << cnt_inlier;
+    LOG(INFO) << "Outlier/Inlier in optimization: " << cnt_outlier << "/"
+              << cnt_inlier;
 
     // Set pose and lanrmark position
     for (auto &v : vertices) {

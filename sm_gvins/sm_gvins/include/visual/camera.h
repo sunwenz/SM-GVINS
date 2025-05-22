@@ -28,6 +28,12 @@ class Camera {
 
     Camera(Mat intrinsic, Mat distortion, const cv::Size &size);
 
+    Camera(double fx, double fy, double cx, double cy, double baseline,
+           const SE3 &pose)
+        : fx_(fx), fy_(fy), cx_(cx), cy_(cy), baseline_(baseline), pose_(pose) {
+        pose_inv_ = pose_.inverse();
+    }
+    
     void undistortImage(const Mat &src, Mat &dst);
     
     SE3 pose() const { return pose_; }

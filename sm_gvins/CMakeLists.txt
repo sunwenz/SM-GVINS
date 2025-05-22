@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 # set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_BUILD_TYPE "Debug")
 
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+
 # set(g2o_libs
 #     ${PROJECT_SOURCE_DIR}/lib/libg2o_stuff.so
 #     ${PROJECT_SOURCE_DIR}/lib/libg2o_core.so
@@ -76,18 +78,18 @@ target_link_libraries(sm_gvins_kitti
   yaml-cpp
 )
 
-add_executable(sm_gvins_node 
-  test_fronted.cpp
-  ${VISUAL_SRC}
-  sm_gvins/src/estimator.cpp
-  sm_gvins_ros/sm_gvins.cpp
-  sm_gvins_ros/drawer_rviz.cpp
-)
+# add_executable(sm_gvins_node 
+#   test_fronted.cpp
+#   ${VISUAL_SRC}
+#   sm_gvins/src/estimator.cpp
+#   sm_gvins_ros/sm_gvins.cpp
+#   sm_gvins_ros/drawer_rviz.cpp
+# )
 
-target_link_libraries(sm_gvins_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${glog_lib}
-  ${g2o_libs}
-  yaml-cpp
-)
+# target_link_libraries(sm_gvins_node
+#   ${catkin_LIBRARIES}
+#   ${OpenCV_LIBRARIES}
+#   ${glog_lib}
+#   ${g2o_libs}
+#   yaml-cpp
+# )

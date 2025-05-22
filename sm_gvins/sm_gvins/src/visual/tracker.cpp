@@ -15,7 +15,8 @@
 Tracker::Tracker(MapPtr map, const Options& options)
     : map_(std::move(map)), options_(std::move(options))
 {
-    
+    gftt_ =
+        cv::GFTTDetector::create(150, 0.01, 20);
 }
 
 void Tracker::SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){
@@ -47,6 +48,8 @@ bool Tracker::TrackFrame(const Image& image){
 
     relative_motion_ = curr_frame_->pose_ * last_frame_->pose_.inverse();
     last_frame_ = curr_frame_;
+
+    return true;
 }
 
 void Tracker::InsertKeyframe(){
@@ -190,7 +193,8 @@ int Tracker::OptimizeInitPose(){
             edge->setId(index);
             edge->setVertex(0, vertex_pose);
             edge->setMeasurement(
-                Vec2d(curr_frame_->features_left_[i]->pixel_pt_.pt.x, curr_frame_->features_left_[i]->pixel_pt_.pt.y));
+                Vec2d(curr_frame_->features_left_[i]->pixel_pt_.pt.x,
+                     curr_frame_->features_left_[i]->pixel_pt_.pt.y));
             edge->setInformation(Eigen::Matrix2d::Identity());
             edge->setRobustKernel(new g2o::RobustKernelHuber);
             edges.push_back(edge);
@@ -315,6 +319,24 @@ bool Tracker::Initilize(const Image& image){
 }
 
 int Tracker::DetectFeatures(){
+    cv::Mat mask(curr_frame_->left_img_.size(), CV_8UC1, 255);
+    for (auto &feat : curr_frame_->features_left_) {
+        cv::rectangle(mask, feat->pixel_pt_.pt - cv::Point2f(10, 10),
+                      feat->pixel_pt_.pt + cv::Point2f(10, 10), 0, cv::FILLED);
+    }
+
+    std::vector<cv::KeyPoint> keypoints;
+    gftt_->detect(curr_frame_->left_img_, keypoints, mask);
+    int cnt_detected = 0;
+    for (auto &kp : keypoints) {
+        curr_frame_->features_left_.push_back(
+            FeaturePtr(new Feature(curr_frame_, kp)));
+        cnt_detected++;
+    }
+
+    LOG(INFO) << "Detect " << cnt_detected << " new features";
+    return cnt_detected;
+/* 
     cv::Mat mask(curr_frame_->left_img_.size(), CV_8UC1, cv::Scalar(255));
     for(auto& feature : curr_frame_->features_left_){
         cv::rectangle(mask, feature->pixel_pt_.pt - cv::Point2f(10, 10), feature->pixel_pt_.pt + cv::Point2f(10, 10), 0, cv::FILLED);
@@ -337,6 +359,7 @@ int Tracker::DetectFeatures(){
     }
     
     return cnt_detected;
+     */
 }
 
 int Tracker::FindFeaturesInRight(){
