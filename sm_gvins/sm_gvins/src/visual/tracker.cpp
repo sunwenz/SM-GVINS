@@ -42,6 +42,32 @@ bool Tracker::TrackFrame(FramePtr frame){
     return true;
 }
 
+void Tracker::ProcessCurrentFrame(){
+    if (curr_frame_->left_img_.channels() == 3)
+    {
+        cvtColor(curr_frame_->left_img_, curr_frame_->left_img_, cv::COLOR_RGB2GRAY);
+        cvtColor(curr_frame_->right_img_, curr_frame_->right_img_, cv::COLOR_RGB2GRAY);
+    }
+
+    curr_frame_->ExtractKeyPointsAndDescriptors();
+    curr_frame_->MatchFromeStereo();
+    curr_frame_->UndistKeyPoints();
+    curr_frame_->CreateFeatures();
+    // curr_frame_->calcFeaturesCamCoors();
+
+    // 初始化匹配地图点
+    curr_frame_->mpoints_matched_ = std::vector<MapPointPtr>(curr_frame_->features_.size(), nullptr);
+    if(initilize_flag_){
+        initilize_flag_ = false;
+        BuildInitMap();
+    }else{
+        TriangulateNewPoints();
+    }
+
+    LOG(INFO) << "当前帧提取的特征点的数量：" << curr_frame_->features_.size();
+    LOG(INFO) << "当前帧可用特征点数量：" << curr_frame_->num_features_;
+}
+
 bool Tracker::MatchWithLastframe(){
     curr_frame_->features_matched_Last.clear();
     curr_frame_->fea_matIndex_Last.clear();
@@ -434,32 +460,6 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
     }
     
     return true;
-}
-
-void Tracker::ProcessCurrentFrame(){
-    if (curr_frame_->left_img_.channels() == 3)
-    {
-        cvtColor(curr_frame_->left_img_, curr_frame_->left_img_, cv::COLOR_RGB2GRAY);
-        cvtColor(curr_frame_->right_img_, curr_frame_->right_img_, cv::COLOR_RGB2GRAY);
-    }
-
-    curr_frame_->ExtractKeyPointsAndDescriptors();
-    curr_frame_->MatchFromeStereo();
-    curr_frame_->UndistKeyPoints();
-    curr_frame_->CreateFeatures();
-    // curr_frame_->calcFeaturesCamCoors();
-
-    // 初始化匹配地图点
-    curr_frame_->mpoints_matched_ = std::vector<MapPointPtr>(curr_frame_->features_.size(), nullptr);
-    if(initilize_flag_){
-        initilize_flag_ = false;
-        BuildInitMap();
-    }else{
-        TriangulateNewPoints();
-    }
-
-    LOG(INFO) << "当前帧提取的特征点的数量：" << curr_frame_->features_.size();
-    LOG(INFO) << "当前帧可用特征点数量：" << curr_frame_->num_features_;
 }
 
 bool Tracker::BuildInitMap(){

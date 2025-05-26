@@ -35,15 +35,14 @@ void Frame::ExtractKeyPointsAndDescriptors()
     std::thread orbright(&ORBextractor::extractORB, orbright_, right_img_, std::ref(keypoints_r_), std::ref(descriptors_r_));
     orbleft.join();
     orbright.join();
-    // Mat outimg1;
-    // drawKeypoints(left_, keypoints_l_, outimg1, Scalar(0,0, 255), DrawMatchesFlags::DEFAULT);
-    // // cout << "size of ORB Features keypoints of img_1:" << keypoints_1.size() << endl;
-    // imshow("ORB features", outimg1);
-    // waitKey(0);
+
+    // cv::Mat outimg1;
+    // cv::drawKeypoints(left_, keypoints_l_, outimg1, Scalar(0,0, 255), DrawMatchesFlags::DEFAULT);
+    // cv::imshow("ORB features", outimg1);
+    // cv::waitKey(0);
 
     // 图像金字塔，只保存两层
     scimg_ = orbleft_->mvImagePyramid[1];
-
 
     // 把特征点分配到网格中以加速匹配
     ORBextractor::AssignfeatoGrid(keypoints_l_, orbleft_);
@@ -51,7 +50,7 @@ void Frame::ExtractKeyPointsAndDescriptors()
 
 void Frame::MatchFromeStereo()
 {
-    matchLeftRight(keypoints_l_, keypoints_r_, left_to_right_, descriptors_l_, descriptors_r_, orbleft_, orbright_); //// 有没有防止右目点在左目点右边的
+    matchLeftRight(keypoints_l_, keypoints_r_, left_to_right_, descriptors_l_, descriptors_r_, orbleft_, orbright_); 
 }
 
 void Frame::UndistKeyPoints()
