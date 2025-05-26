@@ -1,0 +1,84 @@
+#pragma once
+
+#include <memory>
+#include <vector>
+#include <mutex>
+#include <unordered_map>
+#include <opencv2/opencv.hpp>
+
+#include "eigen_types.h"
+#include "image.h"
+#include "feature.h"
+#include "orb_extractor.h"
+
+class Frame
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    Frame();
+    Frame(int id, double timestamp, cv::Mat left_img, cv::Mat right_img = cv::Mat());
+    ~Frame() = default
+
+    static std::shared_ptr<Frame> createFrame(); // 创建一帧
+
+    void ExtractKeyPointsAndDescriptors(); // 提取关键点
+
+    void UndistKeyPoints(); // 根据相机畸变参数校正关键点坐标
+
+    void MatchFromeStereo(); // 双目相机左右目特征点匹配
+
+    void CreateFeatures(); // 生成当前帧的特征点
+
+    bool MatchFeatures(std::shared_ptr<Frame> frame, const SE3 &initPose, int th);
+
+    bool MatchFeaturesByProjection(std::shared_ptr<Frame> frame, const SE3 &initPose, int th);
+
+    ulong id_;                // 帧ID
+    double timestamp_;     // 时间戳
+
+    SE3 Twc_;   // 前端跟踪得到的位姿
+
+    Eigen::Matrix<double, 7, 7, Eigen::RowMajor> cov_pos;//估计位姿的方差-协方差，姿态在前[qx qy qz qw]^T,位置在后
+
+    cv::Mat left_img_, right_img_; // 左图,右图
+    cv::Mat mask_;         // 目标掩码（背景为0）
+    cv::Mat scimg_;        // 缩放图
+
+    std::vector<FeaturePtr> features_;        // 当前帧特征点
+    ORBextractor::Ptr orbleft_, orbright_;    // 左右目ORB特征
+
+    /*与上一帧或关键帧跟踪或匹配*/
+    std::vector<cv::Point2f> features_tracked_;     // 上一帧特征点通过直接法跟踪得到的在当前帧中的位置（0为未跟踪到，与上一帧特征点对应）
+    std::vector<cv::Point2f> features_matched_;     // 匹配的上一帧或关键帧特征点在当前帧的位置（0为未匹配上，与上一帧或关键帧特征点对应）
+    std::vector<cv::Point2f> features_matched_Last; //匹配的上一帧特征点在当前帧的位置（0为未匹配上，与上一帧特征点对应）
+    std::vector<cv::Point2f> features_matched_Key;  //匹配的关键帧特征点在当前帧的位置（0为未匹配上，与关键帧特征点对应）
+    
+    std::vector<int> fea_matIndex; //在当前帧匹配的特征点点号2011/11/17
+    std::vector<int> fea_matIndex_Last; //与上一帧匹配在当前帧的特征点点号
+    std::vector<int> fea_matIndex_Key;  //与关键帧匹配在当前帧的特征点点号
+
+    /*与地图点匹配*/
+    std::vector<std::shared_ptr<MapPoint>> mpoints_matched_; // 匹配的地图点（nullptr为未匹配上，与当前帧特征点对应）
+
+    int num_features_; // 当前帧特征点的数量（左右目匹配上且深度合理的点，与features_中type_不为0的数量相等）
+    int num_matched_;  // 匹配的特征点的数量（上一帧匹配/关键帧匹配）
+    int num_matched_Last; //匹配的特征点的数量（上一帧匹配）
+    int num_matched_Key;  //匹配的特征点的数量（关键帧匹配）
+    int num_mpoints_;  // 匹配的地图点的数量（局部地图匹配）
+    
+    int init_matched;
+
+    bool match_last_ = true;
+
+    bool is_good_ = false;    // 估计的位姿是否合理
+    bool is_keyframe_ = false;     // 是否是关键帧的标志
+
+    std::vector<cv::KeyPoint> keypoints_l_; // 左目中的所有关键点（去除畸变后）
+    std::vector<cv::KeyPoint> keypoints_r_; // 右目中的所有关键点
+    cv::Mat descriptors_l_;                 // 左目所有关键点的描述子
+    cv::Mat descriptors_r_;                 // 右目所有关键点的描述子
+    std::vector<float> keypts_depth_;       // RGBD相机中每个特征点对应的深度
+    std::vector<float> left_to_right_;      // 左目特征点对应的右目特征点
+};
+using FramePtr = std::shared_ptr<Frame>;
+

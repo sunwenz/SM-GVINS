@@ -1,4 +1,5 @@
 #pragma once
+#include "parameters.h"
 
 #include <Eigen/Dense>
 #include <Eigen/SVD>
@@ -139,6 +140,15 @@ inline bool triangulatePoint(const std::vector<Sophus::SE3d> &poses,   //Twc
         return true;
     }
     return false;
+}
+
+inline void judgeForOrBackward(const SE3 &T_last, const SE3 &T_curr, bool &isForward, bool &isBackward)
+{
+    SE3 T_l_c = T_last.inverse() * T_curr;
+    Vec3d t_l_c = T_l_c.translation();
+
+    isForward = t_l_c(2) > Parameters::base_;
+    isBackward = -t_l_c(2) < Parameters::base_;
 }
 
 }

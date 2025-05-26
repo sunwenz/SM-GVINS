@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include "imu.h"
+#include "eigen_types.h"
 
 class utils{
 public:
@@ -73,5 +74,7 @@ public:
 
         return is_zero_velocity;
     }
+
+    
 };
 
