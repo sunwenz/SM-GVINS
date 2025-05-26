@@ -1,6 +1,5 @@
 #pragma once
 #include "eigen_types.h"
-#include <opencv2/opencv.hpp>
 
 struct Parameters
 {

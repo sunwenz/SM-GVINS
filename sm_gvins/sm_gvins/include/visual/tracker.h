@@ -13,6 +13,7 @@
 #include "frame.h"
 #include "map.h"
 #include "mappoint.h"
+#include "parameters.h"
 #include "orb_extractor.h"
 
 class Tracker{ 
@@ -41,7 +42,7 @@ private:
     bool MatchFeaturesByBruteForce(FramePtr frame, int th);
     void CheckRotConsistency(FramePtr frame, vector<cv::Point2f> &fea_mat, vector<int> &index);
     bool CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<cv::Point2d>& pixels_2d);
-    
+
     bool InBorder(const float ptx, const float pty, int border_size = 1)
     {
         return (Parameters::min_X_ + border_size) < ptx && ptx < (Parameters::max_X_ - border_size) && (Parameters::min_Y_ + border_size) < pty && pty < (Parameters::max_Y_ - border_size);

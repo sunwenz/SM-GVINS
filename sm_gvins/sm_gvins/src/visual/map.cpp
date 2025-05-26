@@ -34,10 +34,10 @@ void Map::RemoveOldKeyframe() {
     // 寻找与当前帧最近与最远的两个关键帧
     double max_dis = 0, min_dis = 9999;
     double max_kf_id = 0, min_kf_id = 0;
-    auto Twc = current_frame_->pose_.inverse();
+    auto Tcw = current_frame_->Twc_.inverse();
     for (auto& kf : active_keyframes_) {
         if (kf.second == current_frame_) continue;
-        auto dis = (kf.second->pose_ * Twc).log().norm();
+        auto dis = (kf.second->Twc_ * Tcw).log().norm();
         if (dis > max_dis) {
             max_dis = dis;
             max_kf_id = kf.first;
@@ -61,19 +61,19 @@ void Map::RemoveOldKeyframe() {
     LOG(INFO) << "remove keyframe " << frame_to_remove->keyframe_id_;
     // remove keyframe and landmark observation
     active_keyframes_.erase(frame_to_remove->keyframe_id_);
-    for (auto feat : frame_to_remove->features_left_) {
+    for (auto feat : frame_to_remove->features_) {
         auto mp = feat->map_point_.lock();
         if (mp) {
             mp->RemoveObservation(feat);
         }
     }
-    for (auto feat : frame_to_remove->features_right_) {
-        if (feat == nullptr) continue;
-        auto mp = feat->map_point_.lock();
-        if (mp) {
-            mp->RemoveObservation(feat);
-        }
-    }
+    // for (auto feat : frame_to_remove->features_right_) {
+    //     if (feat == nullptr) continue;
+    //     auto mp = feat->map_point_.lock();
+    //     if (mp) {
+    //         mp->RemoveObservation(feat);
+    //     }
+    // }
 
     CleanMap();
 }

@@ -42,10 +42,10 @@ include_directories(
   ${YAML_CPP_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
   ${PROJECT_SOURCE_DIR}/sm_gvins_ros
-  ${PROJECT_SOURCE_DIR}/sm_gvins/include/
   ${PROJECT_SOURCE_DIR}/sm_gvins/include/types
   ${PROJECT_SOURCE_DIR}/sm_gvins/include/visual
   ${PROJECT_SOURCE_DIR}/sm_gvins/include/utils
+  ${PROJECT_SOURCE_DIR}/sm_gvins/include/
   ${PROJECT_SOURCE_DIR}/thirdparty/sophus
   ${PROJECT_SOURCE_DIR}/thirdparty/eigen
   ${PROJECT_SOURCE_DIR}/thirdparty/g2o

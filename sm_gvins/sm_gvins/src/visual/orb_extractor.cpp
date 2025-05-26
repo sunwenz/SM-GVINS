@@ -24,7 +24,7 @@ std::vector<int> ORBextractor::umax;
  * @param u_max:用于存储计算特征方向时，图像每个v坐标对应最大的u坐标
  * @return
  */
-static float IC_Angle(const Mat &image, Point2f pt, const vector<int> &u_max)
+static float IC_Angle(const Mat &image, cv::Point2f pt, const vector<int> &u_max)
 {
     int m_01 = 0, m_10 = 0;
 
@@ -50,14 +50,14 @@ static float IC_Angle(const Mat &image, Point2f pt, const vector<int> &u_max)
         m_01 += v * v_sum;
     }
 
-    return fastAtan2((float)m_01, (float)m_10);
+    return cv::fastAtan2((float)m_01, (float)m_10);
 }
 
 //角度转弧度
 const float factorPI = (float)(CV_PI / 180.f);
 
-static void computeOrbDescriptor(const KeyPoint &kpt,
-                                 const Mat &img, const Point *pattern,
+static void computeOrbDescriptor(const cv::KeyPoint &kpt,
+                                 const Mat &img, const cv::Point *pattern,
                                  uchar *desc)
 {
     float angle = (float)kpt.angle * factorPI;
@@ -378,7 +378,7 @@ ORBextractor::ORBextractor()
 {
     mvImagePyramid.resize(nlevels);
     const int npoints = 512;
-    const Point *pattern0 = (const Point *)bit_pattern_31_;
+    const cv::Point *pattern0 = (const cv::Point *)bit_pattern_31_;
     std::copy(pattern0, pattern0 + npoints, std::back_inserter(pattern));
 
     //This is for orientation
@@ -387,9 +387,9 @@ ORBextractor::ORBextractor()
 
 ORBextractor::~ORBextractor() {}
 
-static void computeOrientation(const Mat &image, vector<KeyPoint> &keypoints, const vector<int> &umax)
+static void computeOrientation(const Mat &image, vector<cv::KeyPoint> &keypoints, const vector<int> &umax)
 {
-    for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
+    for (vector<cv::KeyPoint>::iterator keypoint = keypoints.begin(),
                                     keypointEnd = keypoints.end();
          keypoint != keypointEnd; ++keypoint)
     {
@@ -683,7 +683,7 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint> 
 
     return vResultKeys;
 }
-void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint>> &allKeypoints)
+void ORBextractor::ComputeKeyPointsOctTree(vector<vector<cv::KeyPoint>> &allKeypoints)
 {
     allKeypoints.resize(nlevels);
 
@@ -750,7 +750,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint>> &allKeypoint
             }
         }
 
-        vector<KeyPoint> &keypoints = allKeypoints[level];
+        vector<cv::KeyPoint> &keypoints = allKeypoints[level];
         keypoints.reserve(nfeatures);
 
         // 根据mnFeaturesPerLevel,即该层的兴趣点数,对特征点进行剔除
@@ -775,7 +775,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint>> &allKeypoint
         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
 
-static void computeDescriptors(const Mat &image, vector<KeyPoint> &keypoints, Mat &descriptors, const vector<Point> &pattern)
+static void computeDescriptors(const Mat &image, vector<cv::KeyPoint> &keypoints, Mat &descriptors, const vector<cv::Point> &pattern)
 {
     descriptors = Mat::zeros((int)keypoints.size(), 32, CV_8UC1);
 
@@ -783,7 +783,7 @@ static void computeDescriptors(const Mat &image, vector<KeyPoint> &keypoints, Ma
         computeOrbDescriptor(keypoints[i], image, &pattern[0], descriptors.ptr((int)i));
 }
 
-void ORBextractor::extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::Mat &_descriptors)
+void ORBextractor::extractORB(cv::Mat _image, vector<cv::KeyPoint> &_keypoints, cv::Mat &_descriptors)
 {
     if (_image.empty())
         return;
@@ -791,7 +791,7 @@ void ORBextractor::extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::
     ComputePyramid(_image);
 
     // 计算每层图像的兴趣点
-    vector<vector<KeyPoint>> allKeypoints;
+    vector<vector<cv::KeyPoint>> allKeypoints;
     ComputeKeyPointsOctTree(allKeypoints);
 
     //Mat descriptors;
@@ -813,7 +813,7 @@ void ORBextractor::extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::
     int offset = 0;
     for (int level = 0; level < nlevels; ++level)
     {
-        vector<KeyPoint> &keypoints = allKeypoints[level];
+        vector<cv::KeyPoint> &keypoints = allKeypoints[level];
         int nkeypointsLevel = (int)keypoints.size();
 
         if (nkeypointsLevel == 0)
@@ -821,7 +821,7 @@ void ORBextractor::extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::
 
         // preprocess the resized image 对图像进行高斯模糊
         Mat workingMat = mvImagePyramid[level].clone();
-        GaussianBlur(workingMat, workingMat, Size(7, 7), 2, 2, BORDER_REFLECT_101);
+        GaussianBlur(workingMat, workingMat, cv::Size(7, 7), 2, 2, cv::BORDER_REFLECT_101);
 
         // Compute the descriptors 计算描述子
         Mat desc = _descriptors.rowRange(offset, offset + nkeypointsLevel);
@@ -834,7 +834,7 @@ void ORBextractor::extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::
         if (level != 0)
         {
             float scale = mvScaleFactor[level]; //getScale(level, firstLevel, scaleFactor);
-            for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
+            for (vector<cv::KeyPoint>::iterator keypoint = keypoints.begin(),
                                             keypointEnd = keypoints.end();
                  keypoint != keypointEnd; ++keypoint)
                 keypoint->pt *= scale;
@@ -885,10 +885,10 @@ void ORBextractor::ComputePyramid(cv::Mat image)
     for (int level = 0; level < nlevels; ++level)
     {
         float scale = mvInvScaleFactor[level];
-        Size sz(cvRound((float)image.cols * scale), cvRound((float)image.rows * scale));
-        Size wholeSize(sz.width + EDGE_THRESHOLD * 2, sz.height + EDGE_THRESHOLD * 2);
+        cv::Size sz(cvRound((float)image.cols * scale), cvRound((float)image.rows * scale));
+        cv::Size wholeSize(sz.width + EDGE_THRESHOLD * 2, sz.height + EDGE_THRESHOLD * 2);
         Mat temp(wholeSize, image.type()), masktemp;
-        mvImagePyramid[level] = temp(Rect(EDGE_THRESHOLD, EDGE_THRESHOLD, sz.width, sz.height));
+        mvImagePyramid[level] = temp(cv::Rect(EDGE_THRESHOLD, EDGE_THRESHOLD, sz.width, sz.height));
 
         // Compute the resized image
         if (level != 0)
@@ -896,12 +896,12 @@ void ORBextractor::ComputePyramid(cv::Mat image)
             resize(mvImagePyramid[level - 1], mvImagePyramid[level], sz, 0, 0, cv::INTER_LINEAR);
 
             copyMakeBorder(mvImagePyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
-                           BORDER_REFLECT_101 + BORDER_ISOLATED);
+                           cv::BORDER_REFLECT_101 + cv::BORDER_ISOLATED);
         }
         else
         {
             copyMakeBorder(image, temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
-                           BORDER_REFLECT_101);
+                           cv::BORDER_REFLECT_101);
         }
     }
 }

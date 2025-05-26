@@ -27,9 +27,9 @@ class ORBextractor
 public:
     ORBextractor();
     ~ORBextractor();
-    void extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::Mat &_descriptors); // 特征提取
+    void extractORB(cv::Mat _image, vector<cv::KeyPoint> &_keypoints, cv::Mat &_descriptors); // 特征提取
     // void extractORB(cv::Mat _image, vector<KeyPoint> &_keypoints, cv::Mat &_descriptors); // 特征提取
-    void calcDescriptors(const vector<KeyPoint> &_keypoints, cv::Mat &_descriptors); // 计算描述子
+    void calcDescriptors(const vector<cv::KeyPoint> &_keypoints, cv::Mat &_descriptors); // 计算描述子
 
 public:
     typedef std::shared_ptr<ORBextractor> Ptr;

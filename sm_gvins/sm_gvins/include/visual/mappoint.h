@@ -2,6 +2,7 @@
 
 #include "frame.h"
 #include "feature.h"
+#include "eigen_types.h"
 
 struct Frame;
 struct Feature;

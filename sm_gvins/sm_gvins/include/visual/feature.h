@@ -15,6 +15,7 @@ struct Feature {
     Vec3d normlize_pt_;
     std::weak_ptr<MapPoint> map_point_;  
     cv::Mat descriptor_;
+    float x_r_; 
     int octave_;      // 所在图像金字塔的层数
     int type_;      // 种类（0：左右目未匹配上或恢复的深度不合理，1：近点，2：远点）
 

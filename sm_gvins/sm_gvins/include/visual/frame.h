@@ -17,9 +17,9 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
     Frame();
     Frame(int id, double timestamp, cv::Mat left_img, cv::Mat right_img = cv::Mat());
-    ~Frame() = default
+    ~Frame() = default;
 
-    static std::shared_ptr<Frame> createFrame(); // 创建一帧
+    static std::shared_ptr<Frame> createFrame(double stamp, cv::Mat left_img, cv::Mat right_img); // 创建一帧
 
     void ExtractKeyPointsAndDescriptors(); // 提取关键点
 
@@ -29,16 +29,13 @@ public:
 
     void CreateFeatures(); // 生成当前帧的特征点
 
-    bool MatchFeatures(std::shared_ptr<Frame> frame, const SE3 &initPose, int th);
-
-    bool MatchFeaturesByProjection(std::shared_ptr<Frame> frame, const SE3 &initPose, int th);
-
+    void SetKeyframe();
+    
     ulong id_;                // 帧ID
+    ulong keyframe_id_;
     double timestamp_;     // 时间戳
 
     SE3 Twc_;   // 前端跟踪得到的位姿
-
-    Eigen::Matrix<double, 7, 7, Eigen::RowMajor> cov_pos;//估计位姿的方差-协方差，姿态在前[qx qy qz qw]^T,位置在后
 
     cv::Mat left_img_, right_img_; // 左图,右图
     cv::Mat mask_;         // 目标掩码（背景为0）
@@ -48,7 +45,6 @@ public:
     ORBextractor::Ptr orbleft_, orbright_;    // 左右目ORB特征
 
     /*与上一帧或关键帧跟踪或匹配*/
-    std::vector<cv::Point2f> features_tracked_;     // 上一帧特征点通过直接法跟踪得到的在当前帧中的位置（0为未跟踪到，与上一帧特征点对应）
     std::vector<cv::Point2f> features_matched_;     // 匹配的上一帧或关键帧特征点在当前帧的位置（0为未匹配上，与上一帧或关键帧特征点对应）
     std::vector<cv::Point2f> features_matched_Last; //匹配的上一帧特征点在当前帧的位置（0为未匹配上，与上一帧特征点对应）
     std::vector<cv::Point2f> features_matched_Key;  //匹配的关键帧特征点在当前帧的位置（0为未匹配上，与关键帧特征点对应）
@@ -66,10 +62,6 @@ public:
     int num_matched_Key;  //匹配的特征点的数量（关键帧匹配）
     int num_mpoints_;  // 匹配的地图点的数量（局部地图匹配）
     
-    int init_matched;
-
-    bool match_last_ = true;
-
     bool is_good_ = false;    // 估计的位姿是否合理
     bool is_keyframe_ = false;     // 是否是关键帧的标志
 

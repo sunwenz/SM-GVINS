@@ -3,7 +3,7 @@
 
 #include <thread>
 
-Frame::Frame(int id, double timestamp, cv::Mat left_img, cv::Mat right_img = cv::Mat())
+Frame::Frame(int id, double timestamp, cv::Mat left_img, cv::Mat right_img)
     : id_(id),
       timestamp_(timestamp),
       left_img_(left_img),
@@ -15,10 +15,16 @@ Frame::Frame(int id, double timestamp, cv::Mat left_img, cv::Mat right_img = cv:
 }
 
 
-std::shared_ptr<Frame> Frame::createFrame(double stamp, cv::) {
+std::shared_ptr<Frame> Frame::createFrame(double stamp, cv::Mat left_img, cv::Mat right_img) {
     static ulong factory_id = 0;
 
-    return std::make_shared<Frame>(factory_id++, stamp);
+    return std::make_shared<Frame>(factory_id++, stamp, left_img, right_img);
+}
+
+void Frame::SetKeyframe() {
+    static long keyframe_factory_id = 0;
+    is_keyframe_ = true;
+    keyframe_id_ = keyframe_factory_id++;
 }
 
 void Frame::ExtractKeyPointsAndDescriptors()
@@ -84,7 +90,6 @@ void Frame::CreateFeatures()
         // 坐标、描述子
         ft->pixel_pt_ = keypoints_l_[i];
         ft->octave_ = keypoints_l_[i].octave;
-        ft->response_ = keypoints_l_[i].response;
         ft->descriptor_ = descriptors_l_.row(i);
 
         if (left_to_right_[i] == 0)
@@ -94,7 +99,8 @@ void Frame::CreateFeatures()
         else
         {
             ft->type_ = 1;
-            ft->pixel_pt_right_ = cv::Point2f(left_to_right_[i], ft->pixel_pt_.pt.y);
+            ft->x_r_ = left_to_right_[i];
+            ft->pixel_pt_right_ = cv::KeyPoint(left_to_right_[i], ft->pixel_pt_.pt.y, ft->pixel_pt_.size);
             num_features_++;
         }
 
@@ -102,176 +108,3 @@ void Frame::CreateFeatures()
     }
 }
 
-/**
- * @brief 当前帧与上一帧或关键帧进行特征匹配
- * 上一帧中type_不为0的特征与当前帧所有特征进行匹配
- * 关键帧中type_不为0的特征与当前帧所有特征进行暴力匹配
- * 当前帧的初始位姿用匀速模型计算出的
- * @param frame 上一帧或关键帧
- * @param th 阈值
- */
-bool Frame::MatchFeatures(std::shared_ptr<Frame> frame, const SE3 &initPose, int th)
-{
-    if (matchFeaturesByProjection(frame, initPose, th))
-    {
-        return true;
-    }
-    else if (matchFeaturesByBruteForce(frame, initPose, th))
-    {
-        return true;
-    }
-    return false;
-
-}
-
-bool Frame::MatchFeaturesByProjection(std::shared_ptr<Frame> frame, const SE3 &initPose, int th)
-{
-    features_matched_.clear();
-    fea_matIndex.clear();
-    features_matched_ = vector<cv::Point2f>(frame->features_.size(), Point2f(0, 0));
-    fea_matIndex = vector<int>(frame->features_.size(),-1);
-    num_matched_ = 0;
-   
-    if(frame->id_ == 0)
-        return false;
-
-    int N = frame->keypoints_l_.size();
-    cout << "keypoints_l_ size: " << N << endl;
-    cout << "features size: " << frame->features_.size() << endl;
-
-    // 判断是前进还是后退
-    bool isForward, isBackward;
-    SE3 Twc_f;
-    math::judgeForOrBackward(frame->Twc_, Twc_f, isForward, isBackward);
-
-    // 将Frame中的点投影到当前帧
-    int fea_count = 0;
-    vector<cv::Point2f> prjPos(N, cv::Point2f(0, 0));
-    vector<float> invzc(N, 0);
-    for (int i = 0; i < frame->features_.size(); i++)
-    {
-        // 如果上一帧的特征点匹配到了地图点，就将该地图点投影到当前帧
-        // 否则就用上一帧双目三角化出的坐标
-        Vec3d lwld, x3Dc;
-        MapPoint::Ptr mp = frame->mpoints_matched_[i];
-        if (mp != nullptr)
-            lwld = mp->coor_;
-        else if (frame->features_[i]->wldcoor_ != Vec3d(0, 0, 0))
-            lwld = frame->features_[i]->wldcoor_;
-        else
-            continue;
-        x3Dc = Transform::world2camera(lwld, T_cw_f_);
-        Vec2d pixeluv = Transform::camera2pixel(Camera::K_, x3Dc);
-        float u = pixeluv(0);
-        float v = pixeluv(1);
-        if (!Func::inBorder(u, v))
-            continue;
-
-        fea_count++;
-        invzc[i] = 1.0 / x3Dc(2);
-        prjPos[i] = cv::Point2f(u, v);
-    }
-
-    /*与Frame帧特征匹配*/
-    vector<cv::Point2f> fea_mat(N, Point2f(0, 0));
-    vector<int> index_pre(frame->features_.size(), -1); // frame帧第i个特征对应当前帧第几个
-    vector<int> fea_dist(features_.size(), 256);        // 当前帧第i个特征的最小匹配距离
-    for (int idex = 0; idex < 2; idex++)
-    {
-        for (int i = 0; i < N; i++)
-        {
-            if (fea_mat[i] != Point2f(0, 0) || prjPos[i] == Point2f(0, 0))
-                continue;
-
-            int nLastOctave = frame->keypoints_l_[i].octave;
-
-            // Search in a window. Size depends on scale
-            float radius = 0;
-            if (idex == 0)
-                radius = th * orbleft_->mvScaleFactor[nLastOctave];
-            else
-                radius = 2 * th * orbleft_->mvScaleFactor[nLastOctave];
-            vector<size_t> vIndices2;
-
-            // 根据前进还是后退在不同尺度上搜索特征点
-            float u = prjPos[i].x, v = prjPos[i].y;
-            if (isForward)
-            {
-                vIndices2 = ORBextractor::GetFeaturesInArea(orbleft_, keypoints_l_, u, v, radius, nLastOctave);
-            }
-            else if (isBackward)
-            {
-                vIndices2 = ORBextractor::GetFeaturesInArea(orbleft_, keypoints_l_, u, v, radius, 0, nLastOctave);
-            }
-            else
-            {
-                vIndices2 = ORBextractor::GetFeaturesInArea(orbleft_, keypoints_l_, u, v, radius, nLastOctave - 1, nLastOctave + 1);
-            }
-
-            if (vIndices2.empty())
-                continue;
-
-            const cv::Mat dMP = frame->descriptors_l_.row(i);
-
-            int bestDist = 256;
-            int bestIdx2 = -1;
-
-            // 遍历满足条件的特征点
-            for (vector<size_t>::const_iterator vit = vIndices2.begin(), vend = vIndices2.end();
-                vit != vend; vit++)
-            {
-                const size_t i2 = *vit;
-
-                if (features_[i2]->type_)
-                {
-                    const float ur = u - Camera::base_fx_ * invzc[i];
-                    const float er = fabs(ur - features_[i2]->x_r_);
-                    if (er > radius)
-                        continue;
-                }
-
-                const cv::Mat &d = descriptors_l_.row(i2);
-
-                const int dist = ORBextractor::DescriptorDistance(dMP, d);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestIdx2 = i2;
-                }
-            }
-
-            if (bestDist <= std::min(ORBextractor::TH_HIGH, fea_dist[bestIdx2]))
-            {
-                fea_mat[i] = keypoints_l_[bestIdx2].pt;
-                index_pre[i] = bestIdx2;
-                fea_dist[bestIdx2] = bestDist;
-//                    cout << features_[bestIdx2]->stereo_ << " ";
-            }
-        }
-//            cout << endl;
-
-        // 旋转一致性检验
-        checkRotConsistency(frame, fea_mat, index_pre);
-
-        // 统计匹配个数
-        num_matched_ = 0;
-        for (int i = 0; i < fea_mat.size(); i++)
-        {
-            if (fea_mat[i] != Point2f(0, 0))
-                num_matched_++;
-        }
-
-        if (num_matched_ >= (float)0.5 * fea_count)
-            break;
-    }
-    cout << "重投影匹配个数： " << num_matched_ << endl;
-
-    features_matched_ = fea_mat;
-    fea_matIndex = index_pre;
-
-    // 如果匹配数量过少，则返回false
-    if (num_matched_ < 0.5 * fea_count && num_matched_ < 15)
-        return false;
-    else
-        return true;
-}

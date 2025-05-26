@@ -19,7 +19,5 @@ int main(int argc, char** argv)
     MapPtr map = std::make_shared<Map>();
     TrackerPtr tracker = std::make_shared<Tracker>(map);
 
-
-    ros::spin();
     return 0;
 }
