@@ -20,18 +20,18 @@ Estimator::Estimator(std::shared_ptr<std::ofstream> f_out, const Options& option
     // camera_right_->pose_ = options_.tracker_options_.Tc0c1_;
     // camera_right_->pose_inv_ = options_.tracker_options_.Tc0c1_.inverse();
 
-    camera_left_ = std::make_shared<Camera>(options_.K_[0](0, 0), options_.K_[0](1, 1),
-                                             options_.K_[0](0, 2), options_.K_[0](1, 2),
-                                            options_.t_[0].norm(), SE3(SO3(), options_.t_[0]));
+    // camera_left_ = std::make_shared<Camera>(options_.K_[0](0, 0), options_.K_[0](1, 1),
+    //                                          options_.K_[0](0, 2), options_.K_[0](1, 2),
+    //                                         options_.t_[0].norm(), SE3(SO3(), options_.t_[0]));
 
-    camera_right_ = std::make_shared<Camera>(options_.K_[1](0, 0), options_.K_[1](1, 1),
-                                             options_.K_[1](0, 2), options_.K_[1](1, 2),
-                                             options_.t_[1].norm(), SE3(SO3(), options_.t_[1]));
+    // camera_right_ = std::make_shared<Camera>(options_.K_[1](0, 0), options_.K_[1](1, 1),
+    //                                          options_.K_[1](0, 2), options_.K_[1](1, 2),
+    //                                          options_.t_[1].norm(), SE3(SO3(), options_.t_[1]));
 
     map_ = std::make_shared<Map>();
     tracker_ = std::make_shared<Tracker>(map_, options_.tracker_options_);
 
-    tracker_->SetCameras(camera_left_, camera_right_);
+    // tracker_->SetCameras(camera_left_, camera_right_);
 }
 
 void Estimator::AddImage(const Image& image){

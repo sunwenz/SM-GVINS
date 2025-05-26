@@ -7,6 +7,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "sm_gvins.h"
+#include "visual/dataset.h"
 
 using namespace std;
 
@@ -139,6 +140,27 @@ int main(int argc, char* argv[]) {
     FLAGS_logtostderr = true;
 
     std::string config_file = "./config/kitti_config00-02.yaml";
+    std::string dataset_dir = "/media/shentao/sunwenzSE/KITTI/dataset/sequences/05";
+    Dataset::Ptr dataset_(new Dataset(dataset_dir));
+    dataset_->Init();
+
+    auto options = LoadOptionsFromYaml(config_file);
+    std::shared_ptr<std::ofstream> f_out = std::make_shared<std::ofstream>(options.output_path_);
+    std::shared_ptr<Estimator> estimator = std::make_shared<Estimator>(f_out, options.estimator_options_);
+
+    estimator->SetCameras(dataset_->GetCamera(0), dataset_->GetCamera(1));
+    while (true)
+    {
+        auto new_image = dataset_->NextFrame();
+        if(new_image == nullptr){
+            break;
+        }
+
+        estimator->AddImage(*new_image);
+    }
+    
+/* 
+    std::string config_file = "./config/kitti_config00-02.yaml";
     auto options = LoadOptionsFromYaml(config_file);
 
     std::shared_ptr<std::ofstream> f_out = std::make_shared<std::ofstream>(options.output_path_);
@@ -180,5 +202,6 @@ int main(int argc, char* argv[]) {
         estimator->AddImage(image);
         std::cout << "new image added: " << time_stamp << std::endl;
     }
+     */
     return 0;
 }

@@ -19,7 +19,7 @@ class Dataset {
     bool Init();
 
     /// create and return the next frame containing the stereo images
-    FramePtr NextFrame();
+    ImagePtr NextFrame();
 
     /// get camera by id
     Camera::Ptr GetCamera(int camera_id) const {

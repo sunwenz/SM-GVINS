@@ -48,7 +48,7 @@ bool Dataset::Init() {
     return true;
 }
 
-FramePtr Dataset::NextFrame() {
+ImagePtr Dataset::NextFrame() {
     if (!fin_time_.good()) {
         LOG(WARNING) << "times.txt stream is not good.";
         return nullptr;
@@ -81,16 +81,9 @@ FramePtr Dataset::NextFrame() {
         return nullptr;
     }
 
-    // 构造图像对象
-    Image image;
-    image.timestamp_ = time;
-    image.img_ = image_left_resized;
-    image.img_right_ = image_right_resized;
-
     // 构造帧对象
-    auto new_frame = Frame::CreateFrame(image);
     current_image_index_++;
-    return new_frame;
+    return std::make_shared<Image>(time, image_left_resized, image_right_resized);
 }
 
 

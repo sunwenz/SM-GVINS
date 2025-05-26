@@ -18,6 +18,12 @@ class Estimator{
     
     void AddImage(const Image& image);
 
+    void SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){
+        camera_left_  = std::move(camera_left);
+        camera_right_ = std::move(camera_right);
+        tracker_->SetCameras(camera_left_, camera_right_);
+    }
+
     NavStated GetNavState() const {
         return NavStated(map_->current_frame_->timestamp_, map_->current_frame_->pose_);
     }
