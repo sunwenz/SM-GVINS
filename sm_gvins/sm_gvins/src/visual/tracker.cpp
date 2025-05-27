@@ -7,9 +7,18 @@
 
 using namespace std;
 
-Tracker::Tracker(MapPtr map, const Options& options)
-    : map_(std::move(map)), options_(std::move(options))
+Tracker::Tracker(MapPtr map)
+    : map_(std::move(map))
 {
+    camera_left_  = std::make_shared<Camera>(
+        Parameters::fx_, Parameters::fy_, Parameters::cx_, 
+        Parameters::cy_, Parameters::base_, SE3()
+    );
+
+    camera_right_  = std::make_shared<Camera>(
+        Parameters::fx_, Parameters::fy_, Parameters::cx_, 
+        Parameters::cy_, Parameters::base_, Parameters::Tc0c1_.inverse()
+    );
 }
 
 void Tracker::SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){
@@ -21,6 +30,15 @@ bool Tracker::TrackFrame(FramePtr frame){
     curr_frame_ = frame;
     ProcessCurrentFrame();
 
+    // 初始化匹配地图点
+    if(initilize_flag_){
+        BuildInitMap();
+
+        initilize_flag_ = false;
+        last_frame_ = curr_frame_;
+        return true;
+    }
+
     curr_frame_->Twc_ = last_frame_->Twc_ * relative_motion_.inverse();
     bool track_success = MatchWithLastframe();
     if(track_success){
@@ -29,16 +47,19 @@ bool Tracker::TrackFrame(FramePtr frame){
     }else{
         num_lost_++;
         curr_frame_->is_good_ = false;
-        LOG(INFO) << "当前帧匹配失败！";       
+        LOG(INFO) << "当前帧匹配失败！";
     }
 
     if(num_lost_ > MAX_LOST){
         LOG(ERROR) << "里程计跟踪失败！";
+        return false;
     }
 
+    TriangulateNewPoints();
+    
     relative_motion_ = last_frame_->Twc_.inverse() * curr_frame_->Twc_;
 
-
+    last_frame_ = curr_frame_;
     return true;
 }
 
@@ -54,48 +75,25 @@ void Tracker::ProcessCurrentFrame(){
     curr_frame_->UndistKeyPoints();
     curr_frame_->CreateFeatures();
     // curr_frame_->calcFeaturesCamCoors();
-
-    // 初始化匹配地图点
-    curr_frame_->mpoints_matched_ = std::vector<MapPointPtr>(curr_frame_->features_.size(), nullptr);
-    if(initilize_flag_){
-        initilize_flag_ = false;
-        BuildInitMap();
-    }else{
-        TriangulateNewPoints();
-    }
-
-    LOG(INFO) << "当前帧提取的特征点的数量：" << curr_frame_->features_.size();
-    LOG(INFO) << "当前帧可用特征点数量：" << curr_frame_->num_features_;
 }
 
 bool Tracker::MatchWithLastframe(){
-    curr_frame_->features_matched_Last.clear();
-    curr_frame_->fea_matIndex_Last.clear();
-    curr_frame_->features_matched_Last = vector<cv::Point2f>(curr_frame_->features_.size(), cv::Point2f(0, 0));
-    curr_frame_->fea_matIndex_Last = vector<int>(curr_frame_->features_.size(),-1);
+    features_matched_.clear();
 
-    MatchFeatures(last_frame_, 7);
-    if(curr_frame_->num_matched_ < 15){
-        LOG(INFO) << "与上一帧匹配的特征点数量过少: " << curr_frame_->num_matched_ << ",无法计算位姿";
+    bool match_success = MatchFeatures(last_frame_, 7);
+    if(!match_success){
         return false;
     }
-    LOG(INFO) << "当前帧与上一帧匹配上的特征点的数量： " << curr_frame_->num_matched_;
-
-    curr_frame_->features_matched_Last = curr_frame_->features_matched_;
-    curr_frame_->fea_matIndex_Last     = curr_frame_->fea_matIndex;
-    curr_frame_->num_matched_Last      = curr_frame_->num_matched_;
 
     int i = 0;
     vector<cv::Point3d> points_3d;
     vector<cv::Point2d> pixels_2d;
-    for (auto pt : curr_frame_->features_matched_Last) {
-        if (pt != cv::Point2f(0, 0)) {
-            Vec3d last_3d = camera_left_->pixel2camera(
-                Vec2d(curr_frame_->features_[i]->pixel_pt_.pt.x,
-                    curr_frame_->features_[i]->pixel_pt_.pt.y));
+    for (auto pt : features_matched_) {
+        if (pt != cv::Point2f(0, 0) && last_frame_->features_[i]->map_point_.lock()){
+            Vec3d last_3d = last_frame_->features_[i]->map_point_.lock()->pos_;
             points_3d.push_back(cv::Point3d(double(last_3d(0, 0)), double(last_3d(1, 0)), double(last_3d(2, 0))));
             pixels_2d.push_back(cv::Point2d(double(pt.x), double(pt.y)));
-        }
+        } 
         i++;
     }
 
@@ -155,19 +153,11 @@ bool Tracker::MatchFeatures(FramePtr frame, int th){
 
 bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
 {
-    curr_frame_->features_matched_.clear();
-    curr_frame_->fea_matIndex.clear();
-    curr_frame_->features_matched_ = vector<cv::Point2f>(frame->features_.size(), cv::Point2f(0, 0));
-    curr_frame_->fea_matIndex = vector<int>(frame->features_.size(),-1);
-    curr_frame_->num_matched_ = 0;
-   
-
     int N = frame->keypoints_l_.size();
 
     // 判断是前进还是后退
     bool isForward, isBackward;
-    SE3 Twc_f;
-    math::judgeForOrBackward(frame->Twc_, Twc_f, isForward, isBackward);
+    math::judgeForOrBackward(frame->Twc_, curr_frame_->Twc_, isForward, isBackward);
 
     // 将Frame中的点投影到当前帧
     int fea_count = 0;
@@ -175,17 +165,14 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
     vector<float> invzc(N, 0);
     for (int i = 0; i < frame->features_.size(); i++)
     {
+        if(!frame->features_[i] || !frame->features_[i]->map_point_.lock())  continue;
+
         // 如果上一帧的特征点匹配到了地图点，就将该地图点投影到当前帧
         // 否则就用上一帧双目三角化出的坐标
-        Vec3d lwld, x3Dc;
-        MapPointPtr mp = frame->mpoints_matched_[i];
-        if (mp != nullptr)
-            lwld = mp->pos_;
-        else
-            continue;
- 
-        x3Dc = camera_left_->world2camera(lwld, last_frame_->Twc_);
-        Vec2d pixeluv = camera_left_->world2pixel(lwld, last_frame_->Twc_);
+        auto mp = frame->features_[i]->map_point_.lock();
+        Vec3d lwld = mp->pos_;
+        Vec3d x3Dc = camera_left_->world2camera(lwld, curr_frame_->Twc_);
+        Vec2d pixeluv = camera_left_->world2pixel(lwld, curr_frame_->Twc_);
 
         float u = pixeluv(0);
         float v = pixeluv(1);
@@ -198,6 +185,7 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
     }
 
     /*与Frame帧特征匹配*/
+    int num_matched = 0;
     vector<cv::Point2f> fea_mat(N, cv::Point2f(0, 0));
     vector<int> index_pre(frame->features_.size(), -1); // frame帧第i个特征对应当前帧第几个
     vector<int> fea_dist(curr_frame_->features_.size(), 256);        // 当前帧第i个特征的最小匹配距离
@@ -247,21 +235,21 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
             {
                 const size_t i2 = *vit;
 
-                if (curr_frame_->features_[i2]->type_)
+                if (curr_frame_->features_[i2] != nullptr)
                 {
                     const float ur = u - Parameters::base_fx_ * invzc[i];
                     const float er = fabs(ur - curr_frame_->features_[i2]->x_r_);
                     if (er > radius)
                         continue;
-                }
+                    
+                    const cv::Mat &d = curr_frame_->descriptors_l_.row(i2);
 
-                const cv::Mat &d = curr_frame_->descriptors_l_.row(i2);
-
-                const int dist = ORBextractor::DescriptorDistance(dMP, d);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestIdx2 = i2;
+                    const int dist = ORBextractor::DescriptorDistance(dMP, d);
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        bestIdx2 = i2;
+                    }
                 }
             }
 
@@ -277,23 +265,21 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
         CheckRotConsistency(frame, fea_mat, index_pre);
 
         // 统计匹配个数
-        curr_frame_->num_matched_ = 0;
         for (int i = 0; i < fea_mat.size(); i++)
         {
             if (fea_mat[i] != cv::Point2f(0, 0))
-                curr_frame_->num_matched_++;
+                num_matched++;
         }
 
-        if (curr_frame_->num_matched_ >= (float)0.5 * fea_count)
+        if (num_matched >= (float)0.5 * fea_count)
             break;
     }
-    LOG(INFO) << "重投影匹配个数： " << curr_frame_->num_matched_;
+    LOG(INFO) << "重投影匹配个数： " << num_matched;
 
-    curr_frame_->features_matched_ = fea_mat;
-    curr_frame_->fea_matIndex = index_pre;
+    features_matched_ = fea_mat;
 
     // 如果匹配数量过少，则返回false
-    if (curr_frame_->num_matched_ < 0.5 * fea_count && curr_frame_->num_matched_ < 15)
+    if (num_matched < 0.5 * fea_count && num_matched < 15)
         return false;
     else
         return true;
@@ -301,12 +287,8 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
 
 bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
 {
-    curr_frame_->features_matched_.clear();
-    curr_frame_->fea_matIndex.clear();
-    curr_frame_->features_matched_ = vector<cv::Point2f>(frame->features_.size(), cv::Point2f(0, 0));
-    curr_frame_->fea_matIndex = vector<int>(frame->features_.size(),-1);//zry2021/11/17
-    curr_frame_->num_matched_ = 0;
     /*特征点匹配*/
+    int num_matched = 0;
     vector<cv::DMatch> matches;
     vector<vector<cv::DMatch>> knnMatches;
     cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce-Hamming(2)"); // BF匹配
@@ -314,15 +296,12 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
     Mat descriptors_1;
     for (int i = 0; i < frame->features_.size(); i++)
     {
-        if (!frame->features_[i]->type_)
+        if (!frame->features_[i])
             continue;
-        else if (curr_frame_->id_ != 1 && curr_frame_->features_matched_[i] != cv::Point2f(0, 0))
-            continue;
-        else // 取出可用点
-        {
-            descriptors_1.push_back(frame->features_[i]->descriptor_);
-        }
+        
+        descriptors_1.push_back(frame->features_[i]->descriptor_);
     }
+
     if (!descriptors_1.rows)
     {
         return false;
@@ -341,10 +320,10 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
     // 匹配结果进一步筛选
     int j = 0;
     int count = 0;
-    curr_frame_->features_matched_.reserve(frame->features_.size());
+    features_matched_.resize(frame->features_.size());
     for (int i = 0; i < frame->features_.size(); i++)
     {
-        if (!frame->features_[i]->type_ || curr_frame_->features_matched_[i] != cv::Point2f(0, 0))
+        if (!frame->features_[i] || features_matched_[i] != cv::Point2f(0, 0))
             continue;
         else
         {
@@ -354,9 +333,8 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
             if (m.distance < max<float>(min_dis * 2, 30.0))
             {
                 count++;
-                curr_frame_->num_matched_++;
-                curr_frame_->features_matched_[i] = curr_frame_->keypoints_l_[trainIdx].pt;
-                curr_frame_->fea_matIndex[i] = trainIdx;
+                num_matched++;
+                features_matched_[i] = curr_frame_->keypoints_l_[trainIdx].pt;
             }
             j++;
         }
@@ -364,10 +342,12 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
 
     LOG(INFO) << "暴力匹配数量：" << count;
     // 如果匹配数量过少，则返回false
-    if (curr_frame_->num_matched_ < 0.05 * ORBextractor::nfeatures)
+    if (num_matched < 0.05 * ORBextractor::nfeatures){
+        LOG(ERROR) << "暴力匹配数量太少：" << count;
         return false;
-    else
-        return true;
+    }
+    
+    return true;
 }
 
 void Tracker::CheckRotConsistency(FramePtr frame, vector<cv::Point2f> &fea_mat, vector<int> &index)
@@ -423,9 +403,9 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
     Vec3d t_eg;
     //rvec - 输出的旋转向量。使坐标点从世界坐标系旋转到相机坐标系
     //tvec - 输出的平移向量。使坐标点从世界坐标系平移到相机坐标系
-    if (!cv::solvePnPRansac(points_3d, pixels_2d, camera_left_->cvK(), cv::Mat(), r, t, false, 100, 4.0, 0.98999, inliers))
+    if (!cv::solvePnPRansac(points_3d, pixels_2d, camera_left_->cvK(), cv::Mat(), r, t, false, 100, 4.0, 0.98999, inliers, cv::SOLVEPNP_EPNP))
     {
-        cout << "特征匹配数量过少，无法计算位姿" << endl;
+        LOG(INFO) << "特征匹配数量过少，无法计算位姿";
         return false;
     }
     cv::Rodrigues(r, R);
@@ -435,8 +415,9 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
             R_eg(i, j) = R.at<double>(i, j);
     }
     
-    if(inliers.size() < 15)
+    if(inliers.size() < 5)
     {
+        LOG(ERROR) << "RANSAC 内点数量太少：" << inliers.size();
         return false;
     }
 
@@ -444,14 +425,13 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
     
     // 剔除误匹配
     int j = 0, k = 0;
-    for (int i = 0; i < curr_frame_->features_matched_Last.size(); i++)
+    for (int i = 0; i < features_matched_.size(); i++)
     {
-        if (curr_frame_->features_matched_Last[i] != cv::Point2f(0, 0))
+        if (features_matched_[i] != cv::Point2f(0, 0))
         {
             if (j >= inliers.size() || k != inliers[j])
             {
-                curr_frame_->features_matched_Last[i] = cv::Point2f(0, 0);
-                curr_frame_->num_matched_Last--;
+                features_matched_[i] = cv::Point2f(0, 0);
             }
             else
                 j++;
@@ -459,6 +439,7 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         }
     }
     
+    LOG(INFO) << "RANSAC 内点数量：" << inliers.size();
     return true;
 }
 
@@ -466,7 +447,7 @@ bool Tracker::BuildInitMap(){
     std::vector<SE3> poses{camera_left_->pose(), camera_right_->pose()};
     size_t cnt_init_landmarks = 0;
     for (size_t i = 0; i < curr_frame_->features_.size(); ++i) {
-        if (curr_frame_->features_[i]->type_ == 0) continue;
+        if (curr_frame_->features_[i] == nullptr) continue;
         // create map point from triangulation
         std::vector<Vec3d> points{
             camera_left_->pixel2camera(
@@ -483,7 +464,6 @@ bool Tracker::BuildInitMap(){
             new_map_point->AddObservation(curr_frame_->features_[i]);
             new_map_point->AddObservation(curr_frame_->features_[i]);
             curr_frame_->features_[i]->map_point_ = new_map_point;
-            curr_frame_->mpoints_matched_[i] = new_map_point;
             cnt_init_landmarks++;
             map_->InsertMapPoint(new_map_point);
         }
@@ -502,8 +482,8 @@ bool Tracker::TriangulateNewPoints(){
     SE3 current_pose_Tcw = curr_frame_->Twc_.inverse();
     int cnt_triangulated_pts = 0;
     for (size_t i = 0; i < curr_frame_->features_.size(); ++i) {
-        if (curr_frame_->features_[i]->map_point_.expired() &&
-            curr_frame_->features_[i] != nullptr) {
+        if (curr_frame_->features_[i] != nullptr && 
+            curr_frame_->features_[i]->map_point_.expired()) {
             // 左图的特征点未关联地图点且存在右图匹配点，尝试三角化
             std::vector<Vec3d> points{
                 camera_left_->pixel2camera(
@@ -524,7 +504,6 @@ bool Tracker::TriangulateNewPoints(){
                     curr_frame_->features_[i]);
 
                 curr_frame_->features_[i]->map_point_ = new_map_point;
-                curr_frame_->mpoints_matched_[i] = new_map_point;
                 map_->InsertMapPoint(new_map_point);
                 cnt_triangulated_pts++;
             }

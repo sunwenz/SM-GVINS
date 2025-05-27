@@ -8,8 +8,8 @@ const int HALF_PATCH_SIZE = 15;
 const int EDGE_THRESHOLD = 19;
 int ORBextractor::HISTO_LENGTH = 30;
 float ORBextractor::mfGridElementWidthInv, ORBextractor::mfGridElementHeightInv;
-int ORBextractor::nfeatures = 0, ORBextractor::nlevels = 0, ORBextractor::iniThFAST = 0, ORBextractor::minThFAST = 0;
-double ORBextractor::scaleFactor = 0.0;
+int ORBextractor::nfeatures = 500, ORBextractor::nlevels = 8, ORBextractor::iniThFAST = 20, ORBextractor::minThFAST = 7;
+double ORBextractor::scaleFactor = 1.2;
 
 std::vector<int> ORBextractor::mnFeaturesPerLevel;
 std::vector<float> ORBextractor::mvScaleFactor;

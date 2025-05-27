@@ -5,7 +5,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <opencv2/opencv.hpp>
-
+#include <glog/logging.h>
 #include "eigen_types.h"
 #include "image.h"
 #include "feature.h"
@@ -43,24 +43,6 @@ public:
 
     std::vector<FeaturePtr> features_;        // 当前帧特征点
     ORBextractor::Ptr orbleft_, orbright_;    // 左右目ORB特征
-
-    /*与上一帧或关键帧跟踪或匹配*/
-    std::vector<cv::Point2f> features_matched_;     // 匹配的上一帧或关键帧特征点在当前帧的位置（0为未匹配上，与上一帧或关键帧特征点对应）
-    std::vector<cv::Point2f> features_matched_Last; //匹配的上一帧特征点在当前帧的位置（0为未匹配上，与上一帧特征点对应）
-    std::vector<cv::Point2f> features_matched_Key;  //匹配的关键帧特征点在当前帧的位置（0为未匹配上，与关键帧特征点对应）
-    
-    std::vector<int> fea_matIndex; //在当前帧匹配的特征点点号2011/11/17
-    std::vector<int> fea_matIndex_Last; //与上一帧匹配在当前帧的特征点点号
-    std::vector<int> fea_matIndex_Key;  //与关键帧匹配在当前帧的特征点点号
-
-    /*与地图点匹配*/
-    std::vector<std::shared_ptr<MapPoint>> mpoints_matched_; // 匹配的地图点（nullptr为未匹配上，与当前帧特征点对应）
-
-    int num_features_; // 当前帧特征点的数量（左右目匹配上且深度合理的点，与features_中type_不为0的数量相等）
-    int num_matched_;  // 匹配的特征点的数量（上一帧匹配/关键帧匹配）
-    int num_matched_Last; //匹配的特征点的数量（上一帧匹配）
-    int num_matched_Key;  //匹配的特征点的数量（关键帧匹配）
-    int num_mpoints_;  // 匹配的地图点的数量（局部地图匹配）
     
     bool is_good_ = false;    // 估计的位姿是否合理
     bool is_keyframe_ = false;     // 是否是关键帧的标志

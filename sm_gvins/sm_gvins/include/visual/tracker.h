@@ -19,13 +19,8 @@
 class Tracker{ 
 public:
     static constexpr int MAX_LOST = 10;
-
-    struct Options{
-        float key_max_t_; // 与参考帧的最大位移差
-        float key_max_R_; // 与参考帧的最大旋转差
-    };
     
-    Tracker(MapPtr map, const Options& options = Options());
+    Tracker(MapPtr map);
 
     void SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right);
 
@@ -54,6 +49,8 @@ private:
     Camera::Ptr camera_left_  = nullptr;
     Camera::Ptr camera_right_ = nullptr;
 
+    std::vector<cv::Point2f> features_matched_;
+
     SE3 relative_motion_;  // 当前帧与上一帧的相对运动，用于估计当前帧pose初值
     
     MapPtr map_ = nullptr;
@@ -61,6 +58,5 @@ private:
     int num_lost_ = 0;
     
     bool initilize_flag_ = true;
-    Options options_;
 };
 using TrackerPtr = std::shared_ptr<Tracker>;

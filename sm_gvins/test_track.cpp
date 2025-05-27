@@ -7,6 +7,92 @@
 #include "parameters.h"
 #include "math.h"
 #include <glog/logging.h>
+#include <boost/format.hpp>
+
+inline bool LoadOptionsFromYaml(const std::string& config_file) {
+    // 检查文件是否存在
+    std::ifstream fin(config_file);
+    if (!fin.good()) {
+        throw std::runtime_error("YAML config file not found: " + config_file);
+    }
+
+    YAML::Node config;
+    try {
+        config = YAML::LoadFile(config_file);
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("YAML parsing failed: " + std::string(e.what()));
+    }
+
+    try {
+        Parameters::image0_topic_ = config["image0_topic"].as<std::string>();
+        Parameters::image1_topic_ = config["image1_topic"].as<std::string>();
+        Parameters::output_path_  = config["output_path"].as<std::string>();
+        Parameters::width_  = config["image_width"].as<int>();
+        Parameters::height_ = config["image_height"].as<int>();
+
+        auto proj = config["projection_parameters"];
+        auto dist = config["distortion_parameters"];
+
+        if (!proj || !dist) throw std::runtime_error("Missing projection_parameters or distortion_parameters.");
+
+        Parameters::fx_ = proj["fx"].as<double>();
+        Parameters::fy_ = proj["fy"].as<double>();
+        Parameters::cx_ = proj["cx"].as<double>();
+        Parameters::cy_ = proj["cy"].as<double>();
+        // options.K_ = (cv::Mat_<double>(3, 3) << fx, 0, cx,
+        //                                         0, fy, cy,
+        //                                         0, 0, 1);
+
+        Parameters::k1_ = dist["k1"].as<double>();
+        Parameters::k2_ = dist["k2"].as<double>();
+        Parameters::p1_ = dist["p1"].as<double>();
+        Parameters::p2_ = dist["p2"].as<double>();
+        // options.D_ = (cv::Mat_<double>(1, 4) << k1, k2, p1, p2);
+
+        std::vector<double> Tbc0_data = config["body_T_cam0"]["data"].as<std::vector<double>>();
+        std::vector<double> Tbc1_data = config["body_T_cam1"]["data"].as<std::vector<double>>();
+        if (Tbc0_data.size() != 16 || Tbc1_data.size() != 16)
+            throw std::runtime_error("Extrinsic matrices must have 16 elements (4x4).");
+
+        Eigen::Matrix4d Tbc0_mat, Tbc1_mat;
+        Tbc0_mat = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(Tbc0_data.data());
+        Tbc1_mat = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(Tbc1_data.data());
+
+        Sophus::SE3d Tbc0_(Tbc0_mat.block<3, 3>(0, 0), Tbc0_mat.block<3, 1>(0, 3));
+        Sophus::SE3d Tbc1_(Tbc1_mat.block<3, 3>(0, 0), Tbc1_mat.block<3, 1>(0, 3));
+
+        Parameters::Tc0c1_ = Tbc0_.inverse() * Tbc1_;
+        Parameters::base_ = Parameters::Tc0c1_.translation().norm();
+        Parameters::base_fx_ = Parameters::base_ * Parameters::fx_;
+        Parameters::fps_ = 10;
+        
+        cv::Mat mat(4, 2, CV_32F);
+        mat.ptr<float>(0)[0] = 0.0; //左上
+        mat.ptr<float>(0)[1] = 0.0;
+        mat.ptr<float>(1)[0] = Parameters::width_; //右上
+        mat.ptr<float>(1)[1] = 0.0;
+        mat.ptr<float>(2)[0] = 0.0; //左下
+        mat.ptr<float>(2)[1] = Parameters::height_;
+        mat.ptr<float>(3)[0] = Parameters::width_; //右下
+        mat.ptr<float>(3)[1] = Parameters::height_;
+
+        // 角点去畸变
+        // cv::undistortPoints(mat, mat, Camera::cvK_, Camera::D_, cv::Mat(), Camera::cvK_);
+
+        // 选取最小和最大的边界坐标
+        Parameters::min_X_ = min(mat.ptr<float>(0)[0], mat.ptr<float>(2)[0]); //左上和左下横坐标最小的
+        Parameters::max_X_ = max(mat.ptr<float>(1)[0], mat.ptr<float>(3)[0]); //右上和右下横坐标最大的
+        Parameters::min_Y_ = min(mat.ptr<float>(0)[1], mat.ptr<float>(1)[1]); //左上和右上纵坐标最小的
+        Parameters::max_Y_ = max(mat.ptr<float>(2)[1], mat.ptr<float>(3)[1]); //左下和右下纵坐标最小的
+
+        ORBextractor::initStaticParam();
+
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("YAML value error: " + std::string(e.what()));
+    }
+
+    LOG(INFO) << "Load Options Finished.";
+}
 
 int main(int argc, char** argv)
 {
@@ -15,9 +101,39 @@ int main(int argc, char** argv)
     FLAGS_colorlogtostderr = true;
     FLAGS_logtostderr = true;
 
-    Tracker::Options options;
+    LoadOptionsFromYaml("/home/shentao/code/sm_gvins_ws/src/config/kitti_config00-02.yaml");
     MapPtr map = std::make_shared<Map>();
     TrackerPtr tracker = std::make_shared<Tracker>(map);
+
+    std::string dataset_path_ = "/home/shentao/下载/00";
+    int current_image_index_ = 2980;
+    while(1){
+        boost::format fmt("%s/image_%d/%06d.png");
+        cv::Mat image_left, image_right;
+        // read images
+        image_left =
+            cv::imread((fmt % dataset_path_ % 0 % current_image_index_).str(),
+                    cv::IMREAD_GRAYSCALE);
+        image_right =
+            cv::imread((fmt % dataset_path_ % 1 % current_image_index_).str(),
+                    cv::IMREAD_GRAYSCALE);
+
+        if (image_left.data == nullptr || image_right.data == nullptr) {
+            LOG(WARNING) << "cannot find images at index " << current_image_index_;
+            break;
+        }
+
+        // cv::Mat image_left_resized, image_right_resized;
+        // cv::resize(image_left, image_left_resized, cv::Size(), 0.5, 0.5,
+        //         cv::INTER_NEAREST);
+        // cv::resize(image_right, image_right_resized, cv::Size(), 0.5, 0.5,
+        //         cv::INTER_NEAREST);
+
+        auto new_frame = Frame::createFrame(0, image_left, image_right);
+
+        tracker->TrackFrame(new_frame);
+        current_image_index_++;
+    }
 
     return 0;
 }

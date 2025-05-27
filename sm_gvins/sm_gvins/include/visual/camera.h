@@ -46,12 +46,14 @@ class Camera {
     }
 
     cv::Mat cvK() const {
-        return intrinsic_;
+        return cv::Mat_<double>(3, 3) << fx_, 0, cx_,
+                                         0, fy_, cy_,
+                                         0, 0, 1;
     }
 
 
     cv::Mat cvD() const {
-        return distortion_;
+        return cv::Mat_<double>(1, 4) << k1_, k2_, p1_, p2_;
     }
 
 

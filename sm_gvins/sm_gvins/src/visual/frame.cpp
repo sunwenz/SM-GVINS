@@ -82,28 +82,24 @@ void Frame::UndistKeyPoints()
 
 void Frame::CreateFeatures()
 {
-    features_.reserve(keypoints_l_.size());
+    features_.resize(keypoints_l_.size(), nullptr);
+    int num_feats = 0;
     for (int i = 0; i < keypoints_l_.size(); i++)
     {
+        if (left_to_right_[i] == 0) continue;
+        
         FeaturePtr ft(new Feature);
         // 坐标、描述子
         ft->pixel_pt_ = keypoints_l_[i];
         ft->octave_ = keypoints_l_[i].octave;
         ft->descriptor_ = descriptors_l_.row(i);
-
-        if (left_to_right_[i] == 0)
-        {
-            ft->type_ = 0;
-        }
-        else
-        {
-            ft->type_ = 1;
-            ft->x_r_ = left_to_right_[i];
-            ft->pixel_pt_right_ = cv::KeyPoint(left_to_right_[i], ft->pixel_pt_.pt.y, ft->pixel_pt_.size);
-            num_features_++;
-        }
-
-        features_.push_back(ft);
+        ft->x_r_ = left_to_right_[i];
+        ft->pixel_pt_right_ = cv::KeyPoint(left_to_right_[i], ft->pixel_pt_.pt.y, ft->pixel_pt_.size);
+        // num_features_++;
+        num_feats++;
+        features_[i] = ft;
     }
+
+    LOG(INFO) << "当前帧可用特征点数量：" << num_feats;
 }
 
