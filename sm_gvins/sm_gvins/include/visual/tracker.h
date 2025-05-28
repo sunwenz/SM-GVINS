@@ -58,5 +58,8 @@ private:
     int num_lost_ = 0;
     
     bool initilize_flag_ = true;
+
+    float normalpose_max_t_ = 0.5; // 与匀速模型的最大位移差
+    float normalpose_max_R_ = 0.2; // 与匀速模型的最大旋转差
 };
 using TrackerPtr = std::shared_ptr<Tracker>;

@@ -16,7 +16,7 @@ class Camera {
 
     double fx_ = 0, fy_ = 0, cx_ = 0, cy_ = 0,
            baseline_ = 0;  // Camera intrinsics
-    double k1_, k2_, k3_, p1_, p2_;
+    double k1_ = 0, k2_ = 0, k3_ = 0, p1_ = 0, p2_ = 0;
     
     Mat intrinsic_;
     Mat distortion_;

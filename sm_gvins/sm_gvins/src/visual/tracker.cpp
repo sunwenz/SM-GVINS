@@ -39,7 +39,7 @@ bool Tracker::TrackFrame(FramePtr frame){
         return true;
     }
 
-    curr_frame_->Twc_ = last_frame_->Twc_ * relative_motion_.inverse();
+    curr_frame_->Twc_ = last_frame_->Twc_ * relative_motion_;
     bool track_success = MatchWithLastframe();
     if(track_success){
         num_lost_ = 0;
@@ -57,7 +57,7 @@ bool Tracker::TrackFrame(FramePtr frame){
 
     TriangulateNewPoints();
     
-    relative_motion_ = last_frame_->Twc_.inverse() * curr_frame_->Twc_;
+    
 
     last_frame_ = curr_frame_;
     return true;
@@ -99,6 +99,27 @@ bool Tracker::MatchWithLastframe(){
 
     if(!CalcPoseByPnP(points_3d, pixels_2d)){
         return false;
+    }
+
+    if(curr_frame_->id_ != 1){
+        relative_motion_ = last_frame_->Twc_.inverse() * curr_frame_->Twc_;
+
+        double T_reltv = relative_motion_.log().norm();         
+        double R_reltv = relative_motion_.so3().log().norm();   
+        double t_reltv = relative_motion_.translation().norm(); 
+
+        // if (isnan(t_reltv) || isnan(R_reltv))
+        // {
+        //     cout << "位姿估计结果有误" << endl;
+        //     return false;
+        // }
+
+        // if (t_reltv > normalpose_max_t_ || R_reltv > normalpose_max_R_)
+        // {
+        //     cout << "位移差：" << t_reltv << " 旋转差：" << R_reltv << " 位姿估计结果有误" << endl;
+        //     return false;
+
+        // }
     }
 
     return true;
@@ -403,7 +424,7 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
     Vec3d t_eg;
     //rvec - 输出的旋转向量。使坐标点从世界坐标系旋转到相机坐标系
     //tvec - 输出的平移向量。使坐标点从世界坐标系平移到相机坐标系
-    if (!cv::solvePnPRansac(points_3d, pixels_2d, camera_left_->cvK(), cv::Mat(), r, t, false, 100, 4.0, 0.98999, inliers, cv::SOLVEPNP_EPNP))
+    if (!cv::solvePnPRansac(points_3d, pixels_2d, camera_left_->cvK(), cv::Mat(), r, t, false, 100, 4.0, 0.98999, inliers/* , cv::SOLVEPNP_EPNP */))
     {
         LOG(INFO) << "特征匹配数量过少，无法计算位姿";
         return false;
@@ -420,6 +441,9 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         LOG(ERROR) << "RANSAC 内点数量太少：" << inliers.size();
         return false;
     }
+
+    LOG(INFO) << "\nR_eg:\n" << R_eg;
+    LOG(INFO) << "t_eg: " << t_eg.transpose();
 
     curr_frame_->Twc_ = SE3(R_eg, t_eg);
     

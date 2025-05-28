@@ -101,38 +101,68 @@ int main(int argc, char** argv)
     FLAGS_colorlogtostderr = true;
     FLAGS_logtostderr = true;
 
+    auto save_vec3 = [](std::ofstream& fout, const Vec3d& v) { fout << v[0] << " " << v[1] << " " << v[2] << " "; };
+    auto save_quat = [](std::ofstream& fout, const Quatd& q) {
+        fout << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << " ";
+    };
+
+    auto save_result = [&save_vec3, &save_quat](std::ofstream& fout, double timestamp, const SE3& save_state) {
+        fout << std::setprecision(18) << timestamp << " " << std::setprecision(9);
+        save_vec3(fout, save_state.translation());
+        save_quat(fout, save_state.unit_quaternion());
+        fout << std::endl;
+    };
+
     LoadOptionsFromYaml("/home/shentao/code/sm_gvins_ws/src/config/kitti_config00-02.yaml");
     MapPtr map = std::make_shared<Map>();
     TrackerPtr tracker = std::make_shared<Tracker>(map);
 
-    std::string dataset_path_ = "/home/shentao/下载/00";
-    int current_image_index_ = 2980;
-    while(1){
-        boost::format fmt("%s/image_%d/%06d.png");
-        cv::Mat image_left, image_right;
-        // read images
-        image_left =
-            cv::imread((fmt % dataset_path_ % 0 % current_image_index_).str(),
-                    cv::IMREAD_GRAYSCALE);
-        image_right =
-            cv::imread((fmt % dataset_path_ % 1 % current_image_index_).str(),
-                    cv::IMREAD_GRAYSCALE);
+    std::string dataset_dir = "/media/shentao/F5D9-6F11/2011_10_03_drive_0027_sync/";
+    if (dataset_dir.empty())
+    {
+        cerr << "Please input dataset directory in default.yaml!" << endl;
+    }
+    ifstream associate,timestamps;
+    associate.open(dataset_dir + "/associate.txt");
+    // timestamps.open("/media/sunwenz/sunwenzSE/KITTYdatasets/2011_10_03_drive_0027/2011_10_03/2011_10_03_drive_0042_sync/image_00/timestamps.txt",std::ios::in);
+    if (!associate)
+    {
+        cerr << "assciate file does not exist!" << endl;
+    }
 
-        if (image_left.data == nullptr || image_right.data == nullptr) {
-            LOG(WARNING) << "cannot find images at index " << current_image_index_;
+    // 读取所有帧的两张图片的路径
+    while (dataset_dir.back() != '/')
+    {
+        dataset_dir.pop_back();
+    }
+    cout << "dataset: " << dataset_dir << endl;
+
+    bool is_first = true;
+    std::ofstream fout_v("/home/shentao/code/sm_gvins_ws/src/output/vins_visual.txt");
+
+    while(true){
+        if(associate.eof() || !associate.good())
             break;
+        
+        string time_stamp, img0_file, img1_file;
+        associate >> time_stamp >>img0_file >> img1_file;
+
+        cv::Mat image_left  = cv::imread(dataset_dir + img0_file);
+        cv::Mat image_right = cv::imread(dataset_dir + img1_file);
+        cv::Mat gray;
+        if (image_left.channels() == 3) { // 彩色图像
+            cv::cvtColor(image_left, image_left, cv::COLOR_BGR2GRAY);
+            cv::cvtColor(image_right, image_right, cv::COLOR_BGR2GRAY);
         }
 
-        // cv::Mat image_left_resized, image_right_resized;
-        // cv::resize(image_left, image_left_resized, cv::Size(), 0.5, 0.5,
-        //         cv::INTER_NEAREST);
-        // cv::resize(image_right, image_right_resized, cv::Size(), 0.5, 0.5,
-        //         cv::INTER_NEAREST);
-
-        auto new_frame = Frame::createFrame(0, image_left, image_right);
-
+        
+        Image image(atof(time_stamp.c_str()), image_left, image_right);
+        
+        auto new_frame = Frame::createFrame(atof(time_stamp.c_str()), image_left, image_right);
         tracker->TrackFrame(new_frame);
-        current_image_index_++;
+
+        save_result(fout_v, new_frame->timestamp_, new_frame->Twc_);
+        // my_vins.TrackFrame(atof(time_stamp.c_str()),image_left,image_right);
     }
 
     return 0;
