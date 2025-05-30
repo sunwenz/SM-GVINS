@@ -36,9 +36,11 @@ void Frame::ExtractKeyPointsAndDescriptors()
     orbleft.join();
     orbright.join();
 
-    // cv::Mat outimg1;
-    // cv::drawKeypoints(left_, keypoints_l_, outimg1, Scalar(0,0, 255), DrawMatchesFlags::DEFAULT);
-    // cv::imshow("ORB features", outimg1);
+    // cv::Mat outimg_left, outimg_right, concat_img;
+    // cv::drawKeypoints(left_img_, keypoints_l_, outimg_left, cv::Scalar(0, 255, 0), cv::DrawMatchesFlags::DEFAULT);
+    // cv::drawKeypoints(right_img_, keypoints_r_, outimg_right, cv::Scalar(255, 0, 0), cv::DrawMatchesFlags::DEFAULT);
+    // cv::hconcat(outimg_left, outimg_right, concat_img); // 水平拼接
+    // cv::imshow("ORB Features - Left | Right", concat_img);
     // cv::waitKey(0);
 
     // 图像金字塔，只保存两层
@@ -86,7 +88,7 @@ void Frame::CreateFeatures()
     int num_feats = 0;
     for (int i = 0; i < keypoints_l_.size(); i++)
     {
-        if (left_to_right_[i] == 0) continue;
+        if (left_to_right_[i] == 0.0) continue;
         
         FeaturePtr ft(new Feature);
         // 坐标、描述子

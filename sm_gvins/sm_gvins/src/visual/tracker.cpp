@@ -488,6 +488,7 @@ bool Tracker::BuildInitMap(){
             new_map_point->AddObservation(curr_frame_->features_[i]);
             new_map_point->AddObservation(curr_frame_->features_[i]);
             curr_frame_->features_[i]->map_point_ = new_map_point;
+            LOG(INFO) << "pworld: " << pworld.transpose();
             cnt_init_landmarks++;
             map_->InsertMapPoint(new_map_point);
         }
