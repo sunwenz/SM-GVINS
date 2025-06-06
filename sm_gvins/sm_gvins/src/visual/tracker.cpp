@@ -56,8 +56,6 @@ bool Tracker::TrackFrame(FramePtr frame){
     }
 
     TriangulateNewPoints();
-    
-    
 
     last_frame_ = curr_frame_;
     return true;
@@ -100,7 +98,7 @@ bool Tracker::MatchWithLastframe(){
     if(!CalcPoseByPnP(points_3d, pixels_2d)){
         return false;
     }
-
+    
     if(curr_frame_->id_ != 1){
         relative_motion_ = last_frame_->Twc_.inverse() * curr_frame_->Twc_;
 
@@ -161,11 +159,11 @@ bool Tracker::MatchWithReferenceframe()
 }
 
 bool Tracker::MatchFeatures(FramePtr frame, int th){
-    if (MatchFeaturesByProjection(frame, th))
+    /* if (MatchFeaturesByProjection(frame, th))
     {
         return true;
     }
-    else if (MatchFeaturesByBruteForce(frame, th))
+    else  */if (MatchFeaturesByBruteForce(frame, th))
     {
         return true;
     }
@@ -174,6 +172,7 @@ bool Tracker::MatchFeatures(FramePtr frame, int th){
 
 bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
 {
+   /*  
     int N = frame->keypoints_l_.size();
 
     // 判断是前进还是后退
@@ -205,7 +204,6 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
         prjPos[i] = cv::Point2f(u, v);
     }
 
-    /*与Frame帧特征匹配*/
     int num_matched = 0;
     vector<cv::Point2f> fea_mat(N, cv::Point2f(0, 0));
     vector<int> index_pre(frame->features_.size(), -1); // frame帧第i个特征对应当前帧第几个
@@ -304,6 +302,175 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
         return false;
     else
         return true;
+
+ */
+
+    
+    int N = frame->keypoints_l_.size();
+    vector<int> rotHist[ORBextractor::HISTO_LENGTH];
+    for (int i = 0; i < ORBextractor::HISTO_LENGTH; i++)
+        rotHist[i].reserve(500);
+    
+    // 判断是前进还是后退
+    SE3 T_l_c = frame->Twc_.inverse() * curr_frame_->Twc_;
+    Vec3d tlc = T_l_c.translation();
+
+    const bool bForward = tlc(2)   > Parameters::base_;   // 如果大于基线则为前进
+    const bool bBackward = -tlc(2) > Parameters::base_; // 如果小于基线则为后退
+
+    // 与上一帧特征匹配
+    int num_matched = 0;
+    const float factor = ORBextractor::HISTO_LENGTH / 360.0f;
+    vector<cv::Point2f> fea_mat(N, cv::Point2f(0, 0));
+    vector<int> fea_order(N, -1);
+    for (int idex = 0; idex < 2; idex++)
+    {
+        for (int i = 0; i < N; i++)
+        {
+            if (!frame->features_[i])
+            {
+                continue;
+            }
+
+            // 如果上一帧的特征点匹配到了地图点，就将该地图点投影到当前帧
+            // 否则就用上一帧双目三角化出的坐标
+            Vec3d lwld, x3Dc;
+            MapPointPtr mp = frame->features_[i]->map_point_.lock();
+            if (mp != nullptr)
+            {
+                lwld = mp->pos_;
+            }
+            else
+                continue;
+            
+            x3Dc = camera_left_->world2camera(lwld, curr_frame_->Twc_);
+
+            const double invzc = 1.0 / x3Dc(2);
+            if (invzc < 0)
+                continue;
+            
+            Vec2d pixeluv = camera_left_->camera2pixel(x3Dc);
+            float u = pixeluv(0);
+            float v = pixeluv(1);
+            if (u < Parameters::min_X_ || u > Parameters::max_X_)
+                continue;
+            if (v < Parameters::min_Y_ || v > Parameters::max_Y_)
+                continue;
+
+            int nLastOctave = frame->keypoints_l_[i].octave;
+
+            // Search in a window. Size depends on scale
+            float radius = 0;
+            if (idex == 0)
+                radius = th * curr_frame_->orbleft_->mvScaleFactor[nLastOctave];
+            else
+                radius = 2 * th * curr_frame_->orbleft_->mvScaleFactor[nLastOctave];
+            vector<size_t> vIndices2;
+
+            // 根据前进还是后退在不同尺度上搜索特征点
+            // NOTE 尺度越大,图像越小
+            if (bForward)
+            {
+                vIndices2 = ORBextractor::GetFeaturesInArea(curr_frame_->orbleft_, curr_frame_->keypoints_l_, u, v, radius, nLastOctave);
+            }
+            else if (bBackward)
+            {
+                vIndices2 = ORBextractor::GetFeaturesInArea(curr_frame_->orbleft_, curr_frame_->keypoints_l_, u, v, radius, 0, nLastOctave);
+            }
+            else
+            {
+                vIndices2 = ORBextractor::GetFeaturesInArea(curr_frame_->orbleft_, curr_frame_->keypoints_l_, u, v, radius, nLastOctave - 1, nLastOctave + 1);
+            }
+//             vIndices2 = ORBextractor::GetFeaturesInArea(orbleft_, keypoints_l_, u, v, radius);
+
+            if (vIndices2.empty())
+                continue;
+
+            const cv::Mat dMP = frame->descriptors_l_.row(i);
+
+            int bestDist = 256;
+            int bestIdx2 = -1;
+
+            // 遍历满足条件的特征点
+            for (vector<size_t>::const_iterator vit = vIndices2.begin(), vend = vIndices2.end();
+                 vit != vend; vit++)
+            {
+                const size_t i2 = *vit;
+                // if (!features_[i2]->type_)
+                //     continue;
+                if (i2 >= curr_frame_->descriptors_l_.rows)
+                    continue;
+                if (curr_frame_->features_[i2])
+                {
+                    const float ur = u - Parameters::base_fx_ * invzc;
+                    const float er = fabs(ur - curr_frame_->features_[i2]->x_r_);
+                    if (er > radius)
+                        continue;
+                }
+
+                const cv::Mat &d = curr_frame_->descriptors_l_.row(i2);
+
+                const int dist = ORBextractor::DescriptorDistance(dMP, d);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestIdx2 = i2;
+                }
+            }
+
+            // 判断匹配点的相对旋转量和平均旋转量的差异，若较大则为错误匹配
+            if (bestDist <= ORBextractor::TH_HIGH)
+            {
+                // fea_mat.push_back(keypoints_l_[bestIdx2].pt);
+                fea_mat[i] = curr_frame_->keypoints_l_[bestIdx2].pt;
+                fea_order[i] = bestIdx2;
+                num_matched++;
+                float rot = frame->keypoints_l_[i].angle - curr_frame_->keypoints_l_[bestIdx2].angle;
+                if (rot < 0.0)
+                    rot += 360.0f;
+                int bin = round(rot * factor); //返回四舍五入的整数值
+                if (bin == ORBextractor::HISTO_LENGTH)
+                    bin = 0;
+                assert(bin >= 0 && bin < ORBextractor::HISTO_LENGTH);
+                rotHist[bin].push_back(bestIdx2);
+            }
+        }
+        int ind1 = -1;
+        int ind2 = -1;
+        int ind3 = -1;
+        ORBextractor::ComputeThreeMaxima(rotHist, ORBextractor::HISTO_LENGTH, ind1, ind2, ind3);
+
+        for (int i = 0; i < ORBextractor::HISTO_LENGTH; i++)
+        {
+            if (i != ind1 && i != ind2 && i != ind3)
+            {
+                for (size_t j = 0, jend = rotHist[i].size(); j < jend; j++)
+                {
+                    for (int c = 0; c < N; c++)
+                    {
+                        if (fea_mat[c] == curr_frame_->keypoints_l_[rotHist[i][j]].pt)
+                        {
+                            fea_mat[c] = cv::Point2f(0, 0);
+                            fea_order[c] = -1;
+                            num_matched--;
+                        }
+                    }
+                }
+            }
+        }
+        if (num_matched >= 0.25 * ORBextractor::nfeatures)
+            break;
+    }
+
+    features_matched_ = fea_mat;
+    LOG(INFO) << "投影匹配数量：" << num_matched;
+
+    // 如果匹配数量过少，则返回false
+    if (num_matched < 15)
+        return false;
+    else
+        return true;
+    
 }
 
 bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
@@ -314,7 +481,7 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
     vector<vector<cv::DMatch>> knnMatches;
     cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce-Hamming(2)"); // BF匹配
     // 取出frame中可以匹配的特征
-    Mat descriptors_1;
+    cv::Mat descriptors_1;
     for (int i = 0; i < frame->features_.size(); i++)
     {
         if (!frame->features_[i])
@@ -329,7 +496,7 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
     }
 
     // 匹配
-    Mat descriptors_2 = curr_frame_->descriptors_l_;
+    cv::Mat descriptors_2 = curr_frame_->descriptors_l_;
     matcher->match(descriptors_1, descriptors_2, matches); ////mask
     // matcher->knnMatch(descriptors_1, descriptors_2, knnMatches, 2); // knn匹配
 
@@ -429,12 +596,16 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         LOG(INFO) << "特征匹配数量过少，无法计算位姿";
         return false;
     }
+    // LOG(INFO) << "\nr:\n" << r;
+    // LOG(INFO) << "\nt:\n" << t;
     cv::Rodrigues(r, R);
     for (int i = 0; i < 3; ++i) {
         t_eg(i) = t.at<double>(i);
         for (int j = 0; j < 3; ++j)
             R_eg(i, j) = R.at<double>(i, j);
     }
+    // std::cout << "\nR_eg:\n" << R_eg << std::endl;
+    // std::cout << "\nt_eg:\n" << t_eg << std::endl;
     
     if(inliers.size() < 5)
     {
@@ -442,10 +613,7 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         return false;
     }
 
-    LOG(INFO) << "\nR_eg:\n" << R_eg;
-    LOG(INFO) << "t_eg: " << t_eg.transpose();
-
-    curr_frame_->Twc_ = SE3(R_eg, t_eg);
+    curr_frame_->Twc_ = last_frame_->Twc_ * SE3(R_eg, t_eg).inverse();
     
     // 剔除误匹配
     int j = 0, k = 0;
@@ -521,7 +689,7 @@ bool Tracker::TriangulateNewPoints(){
 
             if (math::triangulatePoint(poses, points, pworld) && pworld[2] > 0) {
                 auto new_map_point = MapPoint::CreateNewMappoint();
-                pworld = current_pose_Tcw * pworld;
+                // pworld = current_pose_Tcw * pworld;
                 new_map_point->pos_ = pworld;
                 new_map_point->AddObservation(
                     curr_frame_->features_[i]);

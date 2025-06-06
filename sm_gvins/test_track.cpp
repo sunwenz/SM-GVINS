@@ -113,11 +113,11 @@ int main(int argc, char** argv)
         fout << std::endl;
     };
 
-    LoadOptionsFromYaml("/home/shentao/code/sm_gvins_ws/src/config/kitti_config00-02.yaml");
+    LoadOptionsFromYaml("/home/sunwenz/Code/sm_gvins_ws/src/config/kitti_config00-02.yaml");
     MapPtr map = std::make_shared<Map>();
     TrackerPtr tracker = std::make_shared<Tracker>(map);
 
-    std::string dataset_dir = "/media/shentao/F5D9-6F11/2011_10_03_drive_0027_sync/";
+    std::string dataset_dir = "/media/sunwenz/sunwenzSE/KITTYdatasets/2011_10_03_drive_0027/2011_10_03/2011_10_03_drive_0027_sync/";
     if (dataset_dir.empty())
     {
         cerr << "Please input dataset directory in default.yaml!" << endl;
@@ -138,7 +138,7 @@ int main(int argc, char** argv)
     cout << "dataset: " << dataset_dir << endl;
 
     bool is_first = true;
-    std::ofstream fout_v("/home/shentao/code/sm_gvins_ws/src/output/vins_visual.txt");
+    std::ofstream fout_v("/home/sunwenz/Code/sm_gvins_ws/src/output/vins_visual.txt");
 
     while(true){
         if(associate.eof() || !associate.good())
