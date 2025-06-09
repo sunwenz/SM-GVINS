@@ -9,25 +9,15 @@
 #include <opencv2/opencv.hpp>
 #include <ros/ros.h>
 #include <sensor_msgs/image_encodings.h>
+#include <sensor_msgs/Imu.h>
 #include <cv_bridge/cv_bridge.h>
 
+#include "estimator.h"
 #include "drawer_rviz.h"
 
 class SM_GVINS{
    public:
-    struct Options{
-        std::string image0_topic_;
-        std::string image1_topic_;
-        std::string output_path_;
-        int image_width_;
-        int image_height_;
-        cv::Mat K_;  // Camera intrinsic matrix
-        cv::Mat D_;  // Distortion coeffs
-        cv::Mat Tbc0_;
-        cv::Mat Tbc1_;
-    };
-    
-    SM_GVINS(ros::NodeHandle& nh, const Options& options = Options());
+    SM_GVINS(ros::NodeHandle& nh);
 
     ~SM_GVINS();
 
@@ -43,12 +33,23 @@ class SM_GVINS{
         img1_buf_.push(img_msg);
     }
 
+    void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
+    {
+        double t = imu_msg->header.stamp.toSec();
+        double dx = imu_msg->linear_acceleration.x;
+        double dy = imu_msg->linear_acceleration.y;
+        double dz = imu_msg->linear_acceleration.z;
+        double rx = imu_msg->angular_velocity.x;
+        double ry = imu_msg->angular_velocity.y;
+        double rz = imu_msg->angular_velocity.z;
+
+        estimator_.AddIMU(IMU(t, Vec3d(rx, ry, rz), Vec3d(dx, dy, dz)));
+    }
+
    private:
     void sync_process();
 
     cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg);
-
-    Options options_;
 
     ros::Subscriber image0_sub_;
     ros::Subscriber image1_sub_;
@@ -60,5 +61,6 @@ class SM_GVINS{
     std::atomic<bool> running_{true};
     std::thread sync_thread_;
 
+    Estimator estimator_;
     DrawerRviz drawer_;
 };

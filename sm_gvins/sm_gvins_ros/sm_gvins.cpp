@@ -1,11 +1,11 @@
 #include "sm_gvins.h"
 #include <glog/logging.h>
 
-SM_GVINS::SM_GVINS(ros::NodeHandle& nh, const Options& options)
-    : options_(std::move(options)), drawer_(nh)
+SM_GVINS::SM_GVINS(ros::NodeHandle& nh)
+    : drawer_(nh)
 {
-    image0_sub_ = nh.subscribe(options_.image0_topic_, 100, &SM_GVINS::img0_callback, this);
-    image1_sub_ = nh.subscribe(options_.image1_topic_, 100, &SM_GVINS::img1_callback, this);
+    image0_sub_ = nh.subscribe(Parameters::image0_topic_, 100, &SM_GVINS::img0_callback, this);
+    image1_sub_ = nh.subscribe(Parameters::image1_topic_, 100, &SM_GVINS::img1_callback, this);
 
     sync_thread_ = std::thread(&SM_GVINS::sync_process, this);
 
@@ -55,13 +55,11 @@ void SM_GVINS::sync_process()
         }
         m_buf_.unlock();
 
-        
         if(!image0.empty()){
             Image image(time, image0);
             drawer_.updateFrame(image);
-            // estimator.inputImage(time, image0, image1);
+            estimator_.AddImage(image);
         }
-            
 
         std::chrono::milliseconds dura(2);
         std::this_thread::sleep_for(dura);

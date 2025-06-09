@@ -10,15 +10,7 @@ using namespace std;
 Tracker::Tracker(MapPtr map)
     : map_(std::move(map))
 {
-    camera_left_  = std::make_shared<Camera>(
-        Parameters::fx_, Parameters::fy_, Parameters::cx_, 
-        Parameters::cy_, Parameters::base_, SE3()
-    );
-
-    camera_right_  = std::make_shared<Camera>(
-        Parameters::fx_, Parameters::fy_, Parameters::cx_, 
-        Parameters::cy_, Parameters::base_, Parameters::Tc0c1_.inverse()
-    );
+    
 }
 
 void Tracker::SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){

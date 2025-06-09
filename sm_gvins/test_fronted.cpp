@@ -2,12 +2,12 @@
 #include <opencv2/core/core.hpp>
 #include <iostream>
 #include <fstream>
+
 #include "sm_gvins.h"
+#include "parameters.h"
 #include <glog/logging.h>
 
-inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
-    SM_GVINS::Options options;
-
+inline bool LoadOptionsFromYaml(const std::string& config_file) {
     // 检查文件是否存在
     std::ifstream fin(config_file);
     if (!fin.good()) {
@@ -22,44 +22,70 @@ inline SM_GVINS::Options LoadOptionsFromYaml(const std::string& config_file) {
     }
 
     try {
-        options.image0_topic_ = config["image0_topic"].as<std::string>();
-        options.image1_topic_ = config["image1_topic"].as<std::string>();
-        options.output_path_  = config["output_path"].as<std::string>();
-        options.image_width_  = config["image_width"].as<int>();
-        options.image_height_ = config["image_height"].as<int>();
+        Parameters::image0_topic_ = config["image0_topic"].as<std::string>();
+        Parameters::image1_topic_ = config["image1_topic"].as<std::string>();
+        Parameters::output_path_  = config["output_path"].as<std::string>();
+        Parameters::width_  = config["image_width"].as<int>();
+        Parameters::height_ = config["image_height"].as<int>();
 
         auto proj = config["projection_parameters"];
         auto dist = config["distortion_parameters"];
 
         if (!proj || !dist) throw std::runtime_error("Missing projection_parameters or distortion_parameters.");
 
-        double fx = proj["fx"].as<double>();
-        double fy = proj["fy"].as<double>();
-        double cx = proj["cx"].as<double>();
-        double cy = proj["cy"].as<double>();
-        options.K_ = (cv::Mat_<double>(3, 3) << fx, 0, cx,
-                                                0, fy, cy,
-                                                0, 0, 1);
+        Parameters::fx_ = proj["fx"].as<double>();
+        Parameters::fy_ = proj["fy"].as<double>();
+        Parameters::cx_ = proj["cx"].as<double>();
+        Parameters::cy_ = proj["cy"].as<double>();
 
-        double k1 = dist["k1"].as<double>();
-        double k2 = dist["k2"].as<double>();
-        double p1 = dist["p1"].as<double>();
-        double p2 = dist["p2"].as<double>();
-        options.D_ = (cv::Mat_<double>(1, 4) << k1, k2, p1, p2);
+        Parameters::k1_ = dist["k1"].as<double>();
+        Parameters::k2_ = dist["k2"].as<double>();
+        Parameters::p1_ = dist["p1"].as<double>();
+        Parameters::p2_ = dist["p2"].as<double>();
 
         std::vector<double> Tbc0_data = config["body_T_cam0"]["data"].as<std::vector<double>>();
         std::vector<double> Tbc1_data = config["body_T_cam1"]["data"].as<std::vector<double>>();
         if (Tbc0_data.size() != 16 || Tbc1_data.size() != 16)
             throw std::runtime_error("Extrinsic matrices must have 16 elements (4x4).");
+        
+        Eigen::Matrix4d Tbc0_mat, Tbc1_mat;
+        Tbc0_mat = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(Tbc0_data.data());
+        Tbc1_mat = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::RowMajor>>(Tbc1_data.data());
+        Parameters::Tbc0_ = Sophus::SE3d(Tbc0_mat.block<3, 3>(0, 0), Tbc0_mat.block<3, 1>(0, 3));
+        Parameters::Tbc1_ = Sophus::SE3d(Tbc1_mat.block<3, 3>(0, 0), Tbc1_mat.block<3, 1>(0, 3));
 
-        options.Tbc0_ = cv::Mat(4, 4, CV_64F, Tbc0_data.data()).clone();
-        options.Tbc1_ = cv::Mat(4, 4, CV_64F, Tbc1_data.data()).clone();
+        Parameters::Tc0c1_ = Parameters::Tbc0_.inverse() * Parameters::Tbc1_;
+        Parameters::base_ = Parameters::Tc0c1_.translation().norm();
+        Parameters::base_fx_ = Parameters::base_ * Parameters::fx_;
+        Parameters::image_fps_ = 10;
+        
+        cv::Mat mat(4, 2, CV_32F);
+        mat.ptr<float>(0)[0] = 0.0; //左上
+        mat.ptr<float>(0)[1] = 0.0;
+        mat.ptr<float>(1)[0] = Parameters::width_; //右上
+        mat.ptr<float>(1)[1] = 0.0;
+        mat.ptr<float>(2)[0] = 0.0; //左下
+        mat.ptr<float>(2)[1] = Parameters::height_;
+        mat.ptr<float>(3)[0] = Parameters::width_; //右下
+        mat.ptr<float>(3)[1] = Parameters::height_;
+
+        // 角点去畸变
+        // cv::undistortPoints(mat, mat, Camera::cvK_, Camera::D_, cv::Mat(), Camera::cvK_);
+
+        // 选取最小和最大的边界坐标
+        Parameters::min_X_ = min(mat.ptr<float>(0)[0], mat.ptr<float>(2)[0]); //左上和左下横坐标最小的
+        Parameters::max_X_ = max(mat.ptr<float>(1)[0], mat.ptr<float>(3)[0]); //右上和右下横坐标最大的
+        Parameters::min_Y_ = min(mat.ptr<float>(0)[1], mat.ptr<float>(1)[1]); //左上和右上纵坐标最小的
+        Parameters::max_Y_ = max(mat.ptr<float>(2)[1], mat.ptr<float>(3)[1]); //左下和右下纵坐标最小的
+
+        ORBextractor::initStaticParam();
+
     } catch (const YAML::Exception& e) {
         throw std::runtime_error("YAML value error: " + std::string(e.what()));
     }
 
     LOG(INFO) << "Load Options Finished.";
-    return options;
+    return false;
 }
 
 int main(int argc, char** argv)
@@ -79,7 +105,7 @@ int main(int argc, char** argv)
 
     std::string config_file = argv[1];
     auto options = LoadOptionsFromYaml(config_file);
-    SM_GVINS gvins(nh, options);
+    SM_GVINS gvins(nh);
     
     ros::spin();
     return 0;
