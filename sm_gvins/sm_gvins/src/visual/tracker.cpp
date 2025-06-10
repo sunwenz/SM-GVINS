@@ -106,18 +106,18 @@ bool Tracker::MatchWithLastframe(){
         double R_reltv = relative_motion_.so3().log().norm();   
         double t_reltv = relative_motion_.translation().norm(); 
 
-        // if (isnan(t_reltv) || isnan(R_reltv))
-        // {
-        //     cout << "位姿估计结果有误" << endl;
-        //     return false;
-        // }
+        if (isnan(t_reltv) || isnan(R_reltv))
+        {
+            cout << "位姿估计结果有误" << endl;
+            return false;
+        }
 
-        // if (t_reltv > normalpose_max_t_ || R_reltv > normalpose_max_R_)
-        // {
-        //     cout << "位移差：" << t_reltv << " 旋转差：" << R_reltv << " 位姿估计结果有误" << endl;
-        //     return false;
+        if (t_reltv > normalpose_max_t_ || R_reltv > normalpose_max_R_)
+        {
+            cout << "位移差：" << t_reltv << " 旋转差：" << R_reltv << " 位姿估计结果有误" << endl;
+            return false;
 
-        // }
+        }
     }
 
     return true;
@@ -613,7 +613,7 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         return false;
     }
 
-    curr_frame_->Twc_ = last_frame_->Twc_ * SE3(R_eg, t_eg).inverse();
+    curr_frame_->Twc_ = last_frame_->Twc_ * SE3(R_eg, t_eg);
     
     // 剔除误匹配
     int j = 0, k = 0;

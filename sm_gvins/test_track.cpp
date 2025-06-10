@@ -64,7 +64,6 @@ inline bool LoadOptionsFromYaml(const std::string& config_file) {
         Parameters::Tc0c1_ = Tbc0_.inverse() * Tbc1_;
         Parameters::base_ = Parameters::Tc0c1_.translation().norm();
         Parameters::base_fx_ = Parameters::base_ * Parameters::fx_;
-        Parameters::fps_ = 10;
         
         cv::Mat mat(4, 2, CV_32F);
         mat.ptr<float>(0)[0] = 0.0; //左上
