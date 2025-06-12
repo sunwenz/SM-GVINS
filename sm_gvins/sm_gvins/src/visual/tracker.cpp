@@ -497,7 +497,7 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
 
     // 匹配
     cv::Mat descriptors_2 = curr_frame_->descriptors_l_;
-    matcher->match(descriptors_1, descriptors_2, matches); ////mask
+    matcher->match(descriptors_1, descriptors_2, matches); 
     // matcher->knnMatch(descriptors_1, descriptors_2, knnMatches, 2); // knn匹配
 
     // 计算最小距离
