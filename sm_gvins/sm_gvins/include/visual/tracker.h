@@ -30,12 +30,11 @@ private:
     void ProcessCurrentFrame();
     bool BuildInitMap();
     bool TriangulateNewPoints();
-    bool MatchWithLastframe();
+    bool TrackLastframe();
     bool MatchWithReferenceframe();
     bool MatchFeatures(FramePtr frame, int th);
     bool MatchFeaturesByProjection(FramePtr frame, int th);
     bool MatchFeaturesByBruteForce(FramePtr frame, int th);
-    void CheckRotConsistency(FramePtr frame, vector<cv::Point2f> &fea_mat, vector<int> &index);
     bool CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<cv::Point2d>& pixels_2d);
 
     bool InBorder(const float ptx, const float pty, int border_size = 1)
@@ -59,7 +58,7 @@ private:
     
     bool initilize_flag_ = true;
 
-    float normalpose_max_t_ = 0.5; // 与匀速模型的最大位移差
-    float normalpose_max_R_ = 0.2; // 与匀速模型的最大旋转差
+    float normalpose_max_t_ = 1.5; // 与匀速模型的最大位移差
+    float normalpose_max_R_ = 1.2; // 与匀速模型的最大旋转差
 };
 using TrackerPtr = std::shared_ptr<Tracker>;

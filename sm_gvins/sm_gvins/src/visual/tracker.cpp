@@ -24,7 +24,8 @@ bool Tracker::TrackFrame(FramePtr frame){
 
     // 初始化匹配地图点
     if(initilize_flag_){
-        BuildInitMap();
+        TriangulateNewPoints();
+        // map_->InsertKeyFrame(frame);
 
         initilize_flag_ = false;
         last_frame_ = curr_frame_;
@@ -32,7 +33,14 @@ bool Tracker::TrackFrame(FramePtr frame){
     }
 
     curr_frame_->Twc_ = last_frame_->Twc_ * relative_motion_;
-    bool track_success = MatchWithLastframe();
+    bool track_success = TrackLastframe();
+    // if(!track_success){
+    //     LOG(INFO) << "match wrong!";
+    //     return false;
+    // }
+
+    // TriangulateNewPoints();
+    // map_->InsertKeyFrame(frame);
     if(track_success){
         num_lost_ = 0;
         curr_frame_->is_good_ = true;
@@ -46,9 +54,9 @@ bool Tracker::TrackFrame(FramePtr frame){
         LOG(ERROR) << "里程计跟踪失败！";
         return false;
     }
-
     TriangulateNewPoints();
-
+    // map_->InsertKeyFrame(frame);
+    
     last_frame_ = curr_frame_;
     return true;
 }
@@ -67,7 +75,7 @@ void Tracker::ProcessCurrentFrame(){
     // curr_frame_->calcFeaturesCamCoors();
 }
 
-bool Tracker::MatchWithLastframe(){
+bool Tracker::TrackLastframe(){
     features_matched_.clear();
 
     bool match_success = MatchFeatures(last_frame_, 7);
@@ -98,18 +106,18 @@ bool Tracker::MatchWithLastframe(){
         double R_reltv = relative_motion_.so3().log().norm();   
         double t_reltv = relative_motion_.translation().norm(); 
 
-        // if (isnan(t_reltv) || isnan(R_reltv))
-        // {
-        //     cout << "位姿估计结果有误" << endl;
-        //     return false;
-        // }
+        if (isnan(t_reltv) || isnan(R_reltv))
+        {
+            cout << "位姿估计结果有误" << endl;
+            return false;
+        }
 
-        // if (t_reltv > normalpose_max_t_ || R_reltv > normalpose_max_R_)
-        // {
-        //     cout << "位移差：" << t_reltv << " 旋转差：" << R_reltv << " 位姿估计结果有误" << endl;
-        //     return false;
+        if (t_reltv > normalpose_max_t_ || R_reltv > normalpose_max_R_)
+        {
+            cout << "位移差：" << t_reltv << " 旋转差：" << R_reltv << " 位姿估计结果有误" << endl;
+            return false;
 
-        // }
+        }
     }
 
     return true;
@@ -528,50 +536,71 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
     }
     
     return true;
-}
 
-void Tracker::CheckRotConsistency(FramePtr frame, vector<cv::Point2f> &fea_mat, vector<int> &index)
-{
-    const float factor = ORBextractor::HISTO_LENGTH / 360.0f;
-    vector<int> rotHist[ORBextractor::HISTO_LENGTH]; // 旋转直方图（检查旋转一致性）
-    for (int i = 0; i < ORBextractor::HISTO_LENGTH; i++)
-        rotHist[i].reserve(500);
+    /* int num_matched = 0;
+    std::vector<cv::DMatch> matches;
 
-    // 计算旋转直方图
-    for (int i = 0; i < frame->features_.size(); i++)
-    {
-        int cur_idx = index[i];
-        if (cur_idx == -1)
+    // 创建匹配器（BruteForce + Hamming 距离）
+    cv::Ptr<cv::DescriptorMatcher> matcher = 
+        cv::DescriptorMatcher::create("BruteForce-Hamming(2)");
+
+    // 提取非空 features 的描述子，并建立索引映射
+    cv::Mat descriptors_1;
+    std::vector<int> descriptor_1_to_feature_idx;
+
+    for (int i = 0; i < frame->features_.size(); i++) {
+        if (!frame->features_[i])
             continue;
-        float rot = curr_frame_->keypoints_l_[cur_idx].angle - frame->keypoints_l_[i].angle;
-        if (rot < 0.0)
-            rot += 360.0f;
-        int bin = std::round(rot * factor);
-        if (bin == ORBextractor::HISTO_LENGTH)
-            bin = 0;
-        assert(bin >= 0 && bin < ORBextractor::HISTO_LENGTH);
-        rotHist[bin].push_back(i);
+        descriptors_1.push_back(frame->features_[i]->descriptor_);
+        descriptor_1_to_feature_idx.push_back(i);
     }
 
-    // 取出直方图中值最大的三个index
-    int ind1 = -1;
-    int ind2 = -1;
-    int ind3 = -1;
-    ORBextractor::ComputeThreeMaxima(rotHist, ORBextractor::HISTO_LENGTH, ind1, ind2, ind3);
+    if (descriptors_1.empty()) {
+        LOG(WARNING) << "Frame descriptors are empty.";
+        return false;
+    }
 
-    // 剔除直方图中不是三个index的匹配
-    for (int i = 0; i < ORBextractor::HISTO_LENGTH; i++)
-    {
-        if (i != ind1 && i != ind2 && i != ind3)
-        {
-            for (size_t j = 0, jend = rotHist[i].size(); j < jend; j++)
-            {
-                int pre_idx = rotHist[i][j];
-                fea_mat[pre_idx] = cv::Point2f(0, 0);
-                index[pre_idx] = -1;
-            }
+    // 当前帧的描述子（train 数据）
+    cv::Mat descriptors_2 = curr_frame_->descriptors_l_;
+
+    // 暴力匹配
+    matcher->match(descriptors_1, descriptors_2, matches);
+
+    // 计算最小距离
+    float min_dis = std::min_element(
+        matches.begin(), matches.end(),
+        [](const cv::DMatch &m1, const cv::DMatch &m2) {
+            return m1.distance < m2.distance;
+        })->distance;
+
+    // 初始化匹配结果容器
+    features_matched_.resize(frame->features_.size(), cv::Point2f(0, 0));
+
+    int count = 0;
+    for (const auto& m : matches) {
+        if (m.distance > std::max<float>(min_dis * 2, 30.0))
+            continue;
+
+        int feature_idx = descriptor_1_to_feature_idx[m.queryIdx];
+        int train_idx = m.trainIdx;
+
+        features_matched_[feature_idx] = curr_frame_->keypoints_l_[train_idx].pt;
+        if(frame->features_[feature_idx]->map_point_.lock() && curr_frame_->features_[train_idx]){
+            auto mp = frame->features_[feature_idx]->map_point_.lock();
+            curr_frame_->features_[train_idx]->map_point_ = mp;
         }
+        count++;
+        num_matched++;
     }
+
+    LOG(INFO) << "num of BruteForce-Match: " << count;
+
+    if (num_matched < 0.05 * ORBextractor::nfeatures) {
+        LOG(ERROR) << "num of BruteForce-Match is not enough: " << num_matched;
+        return false;
+    }
+
+    return true; */
 }
 
 bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<cv::Point2d>& pixels_2d)
@@ -605,7 +634,7 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         return false;
     }
 
-    curr_frame_->Twc_ = last_frame_->Twc_ * SE3(R_eg, t_eg).inverse();
+    curr_frame_->Twc_ = last_frame_->Twc_ * SE3(R_eg, t_eg);
     
     // 剔除误匹配
     int j = 0, k = 0;
@@ -683,8 +712,6 @@ bool Tracker::TriangulateNewPoints(){
                 auto new_map_point = MapPoint::CreateNewMappoint();
                 // pworld = current_pose_Tcw * pworld;
                 new_map_point->pos_ = pworld;
-                new_map_point->AddObservation(
-                    curr_frame_->features_[i]);
                 new_map_point->AddObservation(
                     curr_frame_->features_[i]);
 

@@ -1,7 +1,7 @@
 %YAML:1.0
 image0_topic: "/kitti/camera_gray_left/image_raw"
 image1_topic: "/kitti/camera_gray_right/image_raw"
-output_path: "/home/shentao/code/sm_gvins_ws/src/output"
+output_path: "/home/sunwenz/Code/sm_gvins_ws/src/output/vins_visual.txt"
 
 image_width: 1241
 image_height: 376

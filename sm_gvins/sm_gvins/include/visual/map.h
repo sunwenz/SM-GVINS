@@ -12,49 +12,44 @@
 class Map {
    public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
-    using LandmarksType = std::unordered_map<unsigned long, MapPointPtr> ;
-    using KeyframesType = std::unordered_map<unsigned long, FramePtr>    ;
 
     Map() {}
+    
+    const std::deque<FramePtr>& keyframes(){
+        return frame_window_;
+    }
+
+    const std::unordered_map<unsigned long, MapPointPtr>& landmarks(){
+        return landmarks_;
+    }
+
+    void SetFramePose(int idx, SE3 pose){
+        std::lock_guard<std::mutex> lk(map_mtx_);
+        frame_window_[idx]->Twc_ = pose;
+    }
+
+    void SetLandmarkDepth(unsigned long id, Vec3d pos){
+        std::lock_guard<std::mutex> lk(map_mtx_);
+        landmarks_[id]->pos_ = pos;
+    }
 
     /// 增加一个关键帧
     void InsertKeyFrame(FramePtr frame);
     /// 增加一个地图顶点
     void InsertMapPoint(MapPointPtr map_point);
 
-    /// 获取所有地图点
-    LandmarksType GetAllMapPoints() {
-        return landmarks_;
-    }
-    /// 获取所有关键帧
-    KeyframesType GetAllKeyFrames() {
-        return keyframes_;
-    }
-
-    /// 获取激活地图点
-    LandmarksType GetActiveMapPoints() {
-        return active_landmarks_;
-    }
-
-    /// 获取激活关键帧
-    KeyframesType GetActiveKeyFrames() {
-        return active_keyframes_;
-    }
-
     /// 清理map中观测数量为零的点
     void CleanMap();
 
     FramePtr current_frame_ = nullptr;
    private:
-    // 将旧的关键帧置为不活跃状态
     void RemoveOldKeyframe();
 
-    LandmarksType landmarks_;         // all landmarks
-    LandmarksType active_landmarks_;  // active landmarks
-    KeyframesType keyframes_;         // all key-frames
-    KeyframesType active_keyframes_;  // all key-frames
+    std::mutex map_mtx_;
+    std::deque<FramePtr> frame_window_;
+    std::unordered_map<unsigned long, MapPointPtr> landmarks_;
 
     // settings
-    int num_active_keyframes_ = 7;  // 激活的关键帧数量
+    const int window_size_ = 10;  // 激活的关键帧数量
 };
 using MapPtr = std::shared_ptr<Map>;

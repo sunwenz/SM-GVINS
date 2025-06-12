@@ -1,7 +1,9 @@
 #pragma once
+#include <iostream>
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <atomic>
 
 #include "types/image.h"
 #include "types/imu.h"
@@ -27,6 +29,8 @@ class Estimator{
     std::shared_ptr<IMUPreintegration> imu_preinteg_ = nullptr;
     std::deque<NavStatedPtr> state_window_;
     std::deque<FramePtr> frame_window_;
+    Mat3d Rbc_[2];
+    Vec3d tbc_[2];
 
     // std::mutex buf_mtx_;
     std::deque<IMU> imu_window_;
@@ -47,4 +51,6 @@ class Estimator{
     TrackerPtr tracker_ = nullptr;
     MapPtr map_ = nullptr;
     Camera::Ptr camera_left_ = nullptr, camera_right_ = nullptr;
+
+    std::ofstream f_out_;
 };

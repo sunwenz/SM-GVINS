@@ -6,6 +6,7 @@
 #include "map.h"
 #include "parameters.h"
 #include "math.h"
+#include "estimator.h"
 #include <glog/logging.h>
 #include <boost/format.hpp>
 
@@ -114,9 +115,8 @@ int main(int argc, char** argv)
     };
 
     LoadOptionsFromYaml("/home/sunwenz/Code/sm_gvins_ws/src/config/kitti_config00-02.yaml");
-    MapPtr map = std::make_shared<Map>();
-    TrackerPtr tracker = std::make_shared<Tracker>(map);
-
+    
+    Estimator estimator;
     std::string dataset_dir = "/media/sunwenz/sunwenzSE/KITTYdatasets/2011_10_03_drive_0027/2011_10_03/2011_10_03_drive_0027_sync/";
     if (dataset_dir.empty())
     {
@@ -157,11 +157,8 @@ int main(int argc, char** argv)
 
         
         Image image(atof(time_stamp.c_str()), image_left, image_right);
-        
-        auto new_frame = Frame::createFrame(atof(time_stamp.c_str()), image_left, image_right);
-        tracker->TrackFrame(new_frame);
+        estimator.AddImage(image);
 
-        save_result(fout_v, new_frame->timestamp_, new_frame->Twc_);
         // my_vins.TrackFrame(atof(time_stamp.c_str()),image_left,image_right);
     }
 

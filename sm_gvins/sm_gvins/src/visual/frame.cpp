@@ -97,6 +97,7 @@ void Frame::CreateFeatures()
         ft->descriptor_ = descriptors_l_.row(i);
         ft->x_r_ = left_to_right_[i];
         ft->pixel_pt_right_ = cv::KeyPoint(left_to_right_[i], ft->pixel_pt_.pt.y, ft->pixel_pt_.size);
+        ft->frame_ = shared_from_this();
         // num_features_++;
         num_feats++;
         features_[i] = ft;

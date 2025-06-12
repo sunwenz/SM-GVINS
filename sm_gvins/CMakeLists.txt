@@ -64,33 +64,36 @@ file(GLOB VISUAL_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/sm_gvins/src/visual/*.cpp
 )
 
-# add_executable(sm_gvins_kitti 
-#   test_track.cpp
-#   ${VISUAL_SRC}
-# )
-
-# target_link_libraries(sm_gvins_kitti
-#   ${catkin_LIBRARIES}
-#   ${OpenCV_LIBRARIES}
-#   ${glog_lib}
-#   ${g2o_libs}
-#   yaml-cpp
-# )
-
-add_executable(sm_gvins_node 
-  test_fronted.cpp
-  ${VISUAL_SRC}
+add_executable(sm_gvins_kitti 
+  test_track.cpp
   sm_gvins/src/estimator.cpp
   sm_gvins/src/imu_preinterg.cpp
   sm_gvins/src/parameters.cpp
-  sm_gvins_ros/sm_gvins.cpp
-  sm_gvins_ros/drawer_rviz.cpp
+  ${VISUAL_SRC}
 )
 
-target_link_libraries(sm_gvins_node
+target_link_libraries(sm_gvins_kitti
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${glog_lib}
   ${g2o_libs}
   yaml-cpp
 )
+
+# add_executable(sm_gvins_node 
+#   test_fronted.cpp
+#   ${VISUAL_SRC}
+#   sm_gvins/src/estimator.cpp
+#   sm_gvins/src/imu_preinterg.cpp
+#   sm_gvins/src/parameters.cpp
+#   sm_gvins_ros/sm_gvins.cpp
+#   sm_gvins_ros/drawer_rviz.cpp
+# )
+
+# target_link_libraries(sm_gvins_node
+#   ${catkin_LIBRARIES}
+#   ${OpenCV_LIBRARIES}
+#   ${glog_lib}
+#   ${g2o_libs}
+#   yaml-cpp
+# )

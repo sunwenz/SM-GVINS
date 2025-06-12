@@ -11,7 +11,7 @@
 #include "feature.h"
 #include "orb_extractor.h"
 
-class Frame
+class Frame : public std::enable_shared_from_this<Frame>
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
