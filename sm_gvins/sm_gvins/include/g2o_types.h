@@ -54,6 +54,80 @@ class VertexXYZ : public g2o::BaseVertex<3, Vec3d> {
     virtual bool write(std::ostream &out) const override { return true; }
 };
 
+class VertexRot : public g2o::BaseVertex<3, SO3> {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    VertexRot() {}
+
+    bool read(std::istream& is) override {
+        double data[4];
+        for (int i = 0; i < 4; i++) {
+            is >> data[i];
+        }
+        setEstimate(SO3(Quatd(data[3], data[0], data[1], data[2])));
+        return true;
+    }
+
+    bool write(std::ostream& os) const override {
+        os << "VERTEX_SO3:QUAT ";
+        os << id() << " ";
+        Quatd q = _estimate.unit_quaternion();
+        os << q.coeffs()[0] << " " << q.coeffs()[1] << " " << q.coeffs()[2] << " " << q.coeffs()[3] << std::endl;
+        return true;
+    }
+
+    virtual void setToOriginImpl() {}
+
+    virtual void oplusImpl(const double* update_) {
+        _estimate = _estimate * SO3::exp(Eigen::Map<const Vec3d>(&update_[0]));  // 旋转部分
+        updateCache();
+    }
+};
+
+/**
+ * 速度顶点，单纯的Vec3d
+ */
+class VertexVelocity : public g2o::BaseVertex<3, Vec3d> {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    VertexVelocity() {}
+
+    virtual bool read(std::istream& is) { return false; }
+    virtual bool write(std::ostream& os) const { return false; }
+
+    virtual void setToOriginImpl() { _estimate.setZero(); }
+
+    virtual void oplusImpl(const double* update_) { _estimate += Eigen::Map<const Vec3d>(update_); }
+};
+
+
+/* 
+    位置顶点
+ */
+class VertexPosition : public VertexVelocity {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    VertexPosition() {}
+};
+
+/**
+ * 陀螺零偏顶点，亦为Vec3d，从速度顶点继承
+ */
+class VertexGyroBias : public VertexVelocity {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    VertexGyroBias() {}
+};
+
+/**
+ * 加计零偏顶点，Vec3d，亦从速度顶点继承
+ */
+class VertexAccBias : public VertexVelocity {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    VertexAccBias() {}
+};
+
 class VertexInverseDepth : public g2o::BaseVertex<1, double>
 {
 public:
@@ -243,13 +317,13 @@ public:
 
     EdgeProjection() : g2o::BaseMultiEdge<2, Eigen::Vector3d>()
     {
-        resize(4);
+        resize(7);
     }
 
     EdgeProjection(const Eigen::Vector3d &_pts_i, const Eigen::Vector3d &_pts_j) 
         : g2o::BaseMultiEdge<2, Eigen::Vector3d>(), pts_i(_pts_i), pts_j(_pts_j)
     {
-        resize(4);
+        resize(7);
     }
 
     virtual bool read(std::istream& is) override { return false; }
@@ -257,25 +331,33 @@ public:
 
     virtual void computeError() override
     {
-        const auto* v0 = static_cast<const VertexPose*>(_vertices[0]);
-        const auto* v1 = static_cast<const VertexPose*>(_vertices[1]);
-        const auto* v2 = static_cast<const VertexPose*>(_vertices[2]);
-        const auto* v3 = static_cast<const VertexInverseDepth*>(_vertices[3]);
+        auto* r1 = dynamic_cast<const VertexRot*>(_vertices[0]);
+        auto* p1 = dynamic_cast<const VertexPosition*>(_vertices[1]);
+        auto* r2 = dynamic_cast<const VertexRot*>(_vertices[2]);
+        auto* p2 = dynamic_cast<const VertexPosition*>(_vertices[3]);
+        auto* rbc = static_cast<const VertexRot*>(_vertices[4]);
+        auto* pbc = static_cast<const VertexPosition*>(_vertices[5]);
+        auto* v = static_cast<const VertexInverseDepth*>(_vertices[6]);
 
-        const SE3& Ti = v0->estimate();
-        const SE3& Tj = v1->estimate();
-        const SE3& Tic = v2->estimate();
-        double inv_dep_i = v3->estimate();
+        const SO3& Rwbi  = r1->estimate();
+        const SO3& Rwbj  = r2->estimate();
+        const SO3& Rbc = rbc->estimate();
 
-        if(!Ti.translation().isZero()){
+        const Vec3d&  twbi  = p1->estimate();
+        const Vec3d&  twbj  = p2->estimate();  
+        const Vec3d&  tbc = pbc->estimate();
+
+        double inv_dep_i = v->estimate();
+
+        if(!twbi.isZero()){
             int tt = 1;
         }
 
-        Eigen::Vector3d pts_camera_i = pts_i / inv_dep_i;
-        Eigen::Vector3d pts_imu_i = Tic.inverse() * pts_camera_i;
-        Eigen::Vector3d pts_w = Ti.inverse() * pts_imu_i;
-        Eigen::Vector3d pts_imu_j = Tj * pts_w;
-        Eigen::Vector3d pts_camera_j = Tic * pts_imu_j;
+        Vec3d pts_camera_i = pts_i / inv_dep_i;
+        Vec3d pts_imu_i = Rbc.inverse() * pts_camera_i + tbc;
+        Vec3d pts_w = Rwbi.inverse() * pts_imu_i + twbi;
+        Vec3d pts_imu_j = Rwbj * (pts_w - twbj);
+        Vec3d pts_camera_j = Rbc * (pts_imu_j - tbc);
 
         if (std::abs(pts_camera_j.z()) < 1e-6) {
             _error.setZero();
@@ -283,76 +365,74 @@ public:
         }
 
         double dep_j = pts_camera_j.z();
-        _error = (pts_camera_j / dep_j).head<2>() - pts_j.head<2>();
+        Vec3d mes = (pts_camera_j / dep_j);
+        _error = mes.head<2>() - pts_j.head<2>();
     }
 
     virtual void linearizeOplus() override
     {
-        const auto* v0 = static_cast<const VertexPose*>(_vertices[0]); // Ti
-        const auto* v1 = static_cast<const VertexPose*>(_vertices[1]); // Tj
-        const auto* v2 = static_cast<const VertexPose*>(_vertices[2]); // Tic
-        const auto* v3 = static_cast<const VertexInverseDepth*>(_vertices[3]); // rho
+        auto* r1 = dynamic_cast<const VertexRot*>(_vertices[0]);
+        auto* p1 = dynamic_cast<const VertexPosition*>(_vertices[1]);
+        auto* r2 = dynamic_cast<const VertexRot*>(_vertices[2]);
+        auto* p2 = dynamic_cast<const VertexPosition*>(_vertices[3]);
+        auto* rbc = static_cast<const VertexRot*>(_vertices[4]);
+        auto* pbc = static_cast<const VertexPosition*>(_vertices[5]);
+        auto* v = static_cast<const VertexInverseDepth*>(_vertices[6]);
 
-        const SE3& Ti = v0->estimate();
-        const SE3& Tj = v1->estimate();
-        const SE3& Tic = v2->estimate();
-        double inv_dep_i = v3->estimate();
+        const SO3& Rwbi  = r1->estimate();
+        const SO3& Rwbj  = r2->estimate();
+        const SO3& Rbc = rbc->estimate();
 
-        // Compute intermediate transformations
-        Eigen::Vector3d pts_camera_i = pts_i / inv_dep_i;
-        Eigen::Vector3d pts_imu_i = Tic.inverse() * pts_camera_i;
-        Eigen::Vector3d pts_w = Ti.inverse() * pts_imu_i;
-        Eigen::Vector3d pts_imu_j = Tj * pts_w;
-        Eigen::Vector3d pts_camera_j = Tic * pts_imu_j;
+        const Vec3d&  twbi  = p1->estimate();
+        const Vec3d&  twbj  = p2->estimate();  
+        const Vec3d&  tbc = pbc->estimate();
 
-        double dep_j = pts_camera_j.z();
-        if (std::abs(dep_j) < 1e-6) {
-            _jacobianOplus[0].setZero();
-            _jacobianOplus[1].setZero();
-            _jacobianOplus[2].setZero();
-            _jacobianOplus[3].setZero();
-            return;
-        }
+        double inv_dep_i = v->estimate();
 
-        // Compute reduce matrix (∂e/∂pts_camera_j)
-        Eigen::Matrix<double, 2, 3> reduce;
-        reduce << 1.0 / dep_j, 0, -pts_camera_j(0) / (dep_j * dep_j),
-                0, 1.0 / dep_j, -pts_camera_j(1) / (dep_j * dep_j);
+        Vec3d pts_camera_i = pts_i / inv_dep_i;
+        Vec3d pts_imu_i = Rbc.inverse() * pts_camera_i + tbc;
+        Vec3d pts_w = Rwbi.inverse() * pts_imu_i + twbi;
+        Vec3d pts_imu_j = Rwbj * (pts_w - twbj);
+        Vec3d pts_camera_j = Rbc * (pts_imu_j - tbc);
 
-        // Rotation matrices
-        Eigen::Matrix3d Ri = Ti.rotationMatrix();
-        Eigen::Matrix3d Rj = Tj.rotationMatrix();
-        Eigen::Matrix3d Ric = Tic.rotationMatrix();
+        double z = pts_camera_j.z();
+        Mat23d reduce;
+        reduce << 1. / z, 0, -pts_camera_j.x() / (z * z),
+                0, 1. / z, -pts_camera_j.y() / (z * z);
 
-        // Jacobian w.r.t. Ti (2x6)
-        Eigen::Matrix<double, 3, 6> jaco_i;
-        jaco_i.leftCols<3>() = Eigen::Matrix3d::Identity();
-        jaco_i.rightCols<3>() = Sophus::SO3d::hat(pts_w);
-        _jacobianOplus[0] = -reduce * Ric * Rj * jaco_i;
+        // common
+        Mat3d Rwbi_mat = Rwbi.matrix();
+        Mat3d Rwbj_mat = Rwbj.matrix();
+        Mat3d Rbc_mat  = Rbc.matrix();
+        Mat3d Rbc_inv  = Rbc.inverse().matrix();
 
-        // Jacobian w.r.t. Tj (2x6)
-        Eigen::Matrix<double, 3, 6> jaco_j;
-        jaco_j.leftCols<3>() = Eigen::Matrix3d::Identity();
-        jaco_j.rightCols<3>() = -Sophus::SO3d::hat(Rj * pts_w);
-        _jacobianOplus[1] = reduce * Ric * jaco_j;
+        // 1. ∂res / ∂R_wbi (VertexRot 0)
+        _jacobianOplus[0] = reduce * Rbc_mat * Rwbj_mat * SO3::hat(Rwbi_mat.inverse() * pts_imu_i);
 
-        // Jacobian w.r.t. Tic (2x6)
-        Eigen::Matrix<double, 3, 6> jaco_ic;
-        jaco_ic.leftCols<3>() = Eigen::Matrix3d::Identity();
-        jaco_ic.rightCols<3>() = -Sophus::SO3d::hat(Ric * pts_imu_j);
-        Eigen::Matrix<double, 3, 6> jaco_ic_via_i;
-        jaco_ic_via_i.setZero();
-        jaco_ic_via_i.rightCols<3>() = -Ric * Rj * Ri.transpose() * Sophus::SO3d::hat(Ric.transpose() * pts_camera_i);
-        _jacobianOplus[2] = reduce * (jaco_ic + jaco_ic_via_i);
+        // 2. ∂res / ∂P_wbi (VertexPosition 1)
+        _jacobianOplus[1] = reduce * Rbc_mat * Rwbj_mat;    
 
-        // Jacobian w.r.t. inv_dep_i (2x1)
-        _jacobianOplus[3] = -reduce * Ric * Rj * Ri.transpose() * Ric.transpose() * pts_i / (inv_dep_i * inv_dep_i);
+        // 3. ∂res / ∂R_wbj (VertexRot 2)
+        _jacobianOplus[2] = -reduce * Rbc_mat * Rwbj_mat * SO3::hat(pts_w - twbj);
+
+        // 4. ∂res / ∂P_wbj (VertexPosition 3)
+        _jacobianOplus[3] = -reduce * Rbc_mat * Rwbj_mat;
+
+        // 5. ∂res / ∂R_bc (VertexRot 4)
+        _jacobianOplus[4] = reduce * (-Rbc_mat * SO3::hat(pts_imu_j - tbc) 
+                                + Rbc_mat * Rwbj_mat * Rwbi_mat.inverse() * SO3::hat(Rbc_inv * pts_camera_i));
+
+        // 6. ∂res / ∂t_bc (VertexPosition 5)
+        _jacobianOplus[5] = reduce * (-Rbc_mat + Rbc_mat * Rwbj_mat * Rwbi_mat.inverse());
+
+        // 7. ∂res / ∂inv_depth (VertexInverseDepth 6)
+        _jacobianOplus[6] = reduce * (-Rbc_mat * Rwbj_mat * Rwbi_mat.inverse() * Rbc_inv * 
+                                pts_i / (inv_dep_i * inv_dep_i));
     }
-
 
     Eigen::Vector3d pts_i, pts_j;
     Eigen::Matrix3d K;
     static Eigen::Matrix2d sqrt_info;
 };
 
-Eigen::Matrix2d EdgeProjection::sqrt_info = Eigen::Matrix2d::Identity(); // 调整为 1.0
+Eigen::Matrix2d EdgeProjection::sqrt_info = 460 / 1.5 * Eigen::Matrix2d::Identity(); // 调整为 1.0

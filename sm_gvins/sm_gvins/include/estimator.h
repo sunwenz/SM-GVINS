@@ -21,6 +21,7 @@ class Estimator{
 
     void SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right);
 
+    std::thread process_;
    private:
     void Process();
     void ProcessImage(FramePtr frame);
@@ -38,7 +39,7 @@ class Estimator{
     std::atomic_bool process_running_{true};
     std::mutex buf_mtx_;
     std::condition_variable con_;
-    std::thread process_;
+    
 
     bool initlized_flag_ = false;
     bool first_imu_flag_ = true;

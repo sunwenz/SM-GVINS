@@ -61,10 +61,12 @@ void Estimator::SetCameras(Camera::Ptr camera_left, Camera::Ptr camera_right){
 void Estimator::Process(){
     while(process_running_){
         if(!frame_buf_.empty()){
-            buf_mtx_.lock();
-            auto frame = frame_buf_.front();
-            frame_buf_.pop();
-            buf_mtx_.unlock();
+            FramePtr frame = nullptr;
+            {   
+                std::lock_guard<std::mutex> lk(buf_mtx_);
+                frame = frame_buf_.front();
+                frame_buf_.pop();
+            }
 
             ProcessImage(frame);
 
@@ -105,21 +107,38 @@ void Estimator::Optimize(){
     optimizer.setAlgorithm(solver);
 
     // extrincs
-    VertexPose* vertex_extrinsic = new VertexPose();
-    vertex_extrinsic->setId(0);
-    vertex_extrinsic->setEstimate(SE3(Rbc_[0], tbc_[0]));
-    vertex_extrinsic->setFixed(true);
-    optimizer.addVertex(vertex_extrinsic);
+    VertexRot* vertex_rbc = new VertexRot();
+    vertex_rbc->setId(0);
+    vertex_rbc->setEstimate(Rbc_[0]);
+    vertex_rbc->setFixed(true);
+    optimizer.addVertex(vertex_rbc);
+
+    VertexPosition* vertex_tbc = new VertexPosition();
+    vertex_tbc->setId(1);
+    vertex_tbc->setEstimate(tbc_[0]);
+    vertex_tbc->setFixed(true);
+    optimizer.addVertex(vertex_tbc);
 
     // pose 顶点，使用Keyframe  id
-    std::map<double, VertexPose *> vertices;
-    unsigned long max_kf_id = 1;
-    for (auto &state : state_window_) {
-        VertexPose *vertex_pose = new VertexPose();  // camera vertex_pose
-        vertex_pose->setId(max_kf_id++);
-        vertex_pose->setEstimate(state->GetSE3());
-        optimizer.addVertex(vertex_pose);
-        vertices.insert({state->timestamp_, vertex_pose});
+    std::map<double, VertexRot *> vertices_rot;
+    std::map<double, VertexPosition *> vertices_pos;
+    unsigned long max_kf_id = 2;
+    for (size_t i = 0; i < state_window_.size(); ++i) {
+        auto state = state_window_[i];
+
+        auto rot = state->R_;
+        VertexRot *v_rot = new VertexRot();  // camera vertex_pose
+        v_rot->setId(max_kf_id++);
+        v_rot->setEstimate(state->R_);
+        optimizer.addVertex(v_rot);
+        vertices_rot.insert({state->timestamp_, v_rot});
+
+        auto pos = state->p_;
+        VertexPosition* v_pos = new VertexPosition();
+        v_pos->setId(max_kf_id++);
+        v_pos->setEstimate(pos);
+        optimizer.addVertex(v_pos);
+        vertices_pos.insert({state->timestamp_, v_pos});
     }
 
     // 路标顶点，使用路标id索引
@@ -130,6 +149,7 @@ void Estimator::Optimize(){
     
     std::unordered_map<unsigned long, VertexInverseDepth*> inverse_depth_vertices;
     std::unordered_map<unsigned long, FeaturePtr> landmark_ref_features; // Stores the feature that initializes the inverse depth
+    std::vector<EdgeProjection*> edges;
     for(auto& keyframe : map_->keyframes()){
         for(auto& ft : keyframe->features_){
             if(ft == nullptr || ft->map_point_.expired())   continue;
@@ -156,15 +176,19 @@ void Estimator::Optimize(){
                 );
                 
                 edge->setId(edge_idx);
-                edge->setVertex(0, vertices[ref_kf->timestamp_]);
-                edge->setVertex(1, vertices[keyframe->timestamp_]);
-                edge->setVertex(2, vertex_extrinsic);
-                edge->setVertex(3, v);
+                edge->setVertex(0, vertices_rot[ref_kf->timestamp_]);
+                edge->setVertex(1, vertices_pos[ref_kf->timestamp_]);
+                edge->setVertex(2, vertices_rot[keyframe->timestamp_]);
+                edge->setVertex(3, vertices_pos[keyframe->timestamp_]);
+                edge->setVertex(4, vertex_rbc);
+                edge->setVertex(5, vertex_tbc);
+                edge->setVertex(6, v);
                 edge->setInformation(EdgeProjection::sqrt_info);
                 auto rk = new g2o::RobustKernelHuber();
                 rk->setDelta(chi2_th);
                 edge->setRobustKernel(rk);
                 optimizer.addEdge(edge);
+                edges.push_back(edge);
                 edge_idx++;
 
             }else
@@ -178,20 +202,19 @@ void Estimator::Optimize(){
     optimizer.optimize(10);
 
     // Set pose and lanrmark position
-    int i = 0;
-    for (auto &v : vertices) {
-        map_->SetFramePose(i, v.second->estimate());
-        state_window_[i]->R_ = v.second->estimate().rotationMatrix();
-        state_window_[i]->p_ = v.second->estimate().translation();
-        i++;
+    for (size_t i = 0; i < state_window_.size(); ++i) {
+        const double t = state_window_[i]->timestamp_;
+        map_->SetFramePose(i, SE3(vertices_rot[t]->estimate(), vertices_pos[t]->estimate()));
+        state_window_[i]->R_ = vertices_rot[t]->estimate();
+        state_window_[i]->p_ = vertices_pos[t]->estimate();
     }
 
     for (auto &v : inverse_depth_vertices) {
         auto ref_ft = landmark_ref_features[v.first];
-        auto ref_kf = ref_ft->frame_;
+        auto ref_kf = ref_ft->frame_.lock();
         map_->SetLandmarkDepth(
             v.first, 
-            camera_left_->pixel2camera(Vec2d(ref_ft->pixel_pt_.pt.x, ref_ft->pixel_pt_.pt.y)) * v.second->estimate()
+            ref_kf->Twc_.inverse() * camera_left_->pixel2camera(Vec2d(ref_ft->pixel_pt_.pt.x, ref_ft->pixel_pt_.pt.y)) / v.second->estimate()
         );
     }
 }

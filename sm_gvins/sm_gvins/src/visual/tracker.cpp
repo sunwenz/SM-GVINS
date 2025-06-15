@@ -24,8 +24,7 @@ bool Tracker::TrackFrame(FramePtr frame){
 
     // 初始化匹配地图点
     if(initilize_flag_){
-        TriangulateNewPoints();
-        // map_->InsertKeyFrame(frame);
+        BuildInitMap();
 
         initilize_flag_ = false;
         last_frame_ = curr_frame_;
@@ -55,7 +54,7 @@ bool Tracker::TrackFrame(FramePtr frame){
         return false;
     }
     TriangulateNewPoints();
-    // map_->InsertKeyFrame(frame);
+    map_->InsertKeyFrame(frame);
     
     last_frame_ = curr_frame_;
     return true;
@@ -475,69 +474,7 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
 
 bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
 {
-    /*特征点匹配*/
     int num_matched = 0;
-    vector<cv::DMatch> matches;
-    vector<vector<cv::DMatch>> knnMatches;
-    cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce-Hamming(2)"); // BF匹配
-    // 取出frame中可以匹配的特征
-    cv::Mat descriptors_1;
-    for (int i = 0; i < frame->features_.size(); i++)
-    {
-        if (!frame->features_[i])
-            continue;
-        
-        descriptors_1.push_back(frame->features_[i]->descriptor_);
-    }
-
-    if (!descriptors_1.rows)
-    {
-        return false;
-    }
-
-    // 匹配
-    cv::Mat descriptors_2 = curr_frame_->descriptors_l_;
-    matcher->match(descriptors_1, descriptors_2, matches); ////mask
-    // matcher->knnMatch(descriptors_1, descriptors_2, knnMatches, 2); // knn匹配
-
-    // 计算最小距离
-    float min_dis = std::min_element(
-                        matches.begin(), matches.end(), [](const cv::DMatch &m1, const cv::DMatch &m2) { return m1.distance < m2.distance; })
-                        ->distance;
-
-    // 匹配结果进一步筛选
-    int j = 0;
-    int count = 0;
-    features_matched_.resize(frame->features_.size());
-    for (int i = 0; i < frame->features_.size(); i++)
-    {
-        if (!frame->features_[i] || features_matched_[i] != cv::Point2f(0, 0))
-            continue;
-        else
-        {
-            cv::DMatch &m = matches[j];
-            int queryIdx = m.queryIdx; // frame帧
-            int trainIdx = m.trainIdx; // 当前帧
-            if (m.distance < max<float>(min_dis * 2, 30.0))
-            {
-                count++;
-                num_matched++;
-                features_matched_[i] = curr_frame_->keypoints_l_[trainIdx].pt;
-            }
-            j++;
-        }
-    }
-
-    LOG(INFO) << "暴力匹配数量：" << count;
-    // 如果匹配数量过少，则返回false
-    if (num_matched < 0.05 * ORBextractor::nfeatures){
-        LOG(ERROR) << "暴力匹配数量太少：" << count;
-        return false;
-    }
-    
-    return true;
-
-    /* int num_matched = 0;
     std::vector<cv::DMatch> matches;
 
     // 创建匹配器（BruteForce + Hamming 距离）
@@ -600,7 +537,7 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
         return false;
     }
 
-    return true; */
+    return true;
 }
 
 bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<cv::Point2d>& pixels_2d)

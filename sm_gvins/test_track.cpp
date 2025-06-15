@@ -162,5 +162,6 @@ int main(int argc, char** argv)
         // my_vins.TrackFrame(atof(time_stamp.c_str()),image_left,image_right);
     }
 
+    estimator.process_.join();
     return 0;
 }
