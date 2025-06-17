@@ -91,8 +91,8 @@ void Estimator::ProcessImage(FramePtr frame){
         state_window_.pop_front();  // 移除最旧的帧
     }
 
-    // if(state_window_.size() > 1)
-    //     Optimize();
+    if(state_window_.size() > 1)
+        Optimize();
 }
 
 void Estimator::Optimize(){
@@ -183,7 +183,7 @@ void Estimator::Optimize(){
                 edge->setVertex(4, vertex_rbc);
                 edge->setVertex(5, vertex_tbc);
                 edge->setVertex(6, v);
-                edge->setInformation(EdgeProjection::sqrt_info);
+                edge->setInformation(Mat2d::Identity()/* EdgeProjection::sqrt_info */);
                 auto rk = new g2o::RobustKernelHuber();
                 rk->setDelta(chi2_th);
                 edge->setRobustKernel(rk);

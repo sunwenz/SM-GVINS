@@ -33,13 +33,7 @@ bool Tracker::TrackFrame(FramePtr frame){
 
     curr_frame_->Twc_ = last_frame_->Twc_ * relative_motion_;
     bool track_success = TrackLastframe();
-    // if(!track_success){
-    //     LOG(INFO) << "match wrong!";
-    //     return false;
-    // }
 
-    // TriangulateNewPoints();
-    // map_->InsertKeyFrame(frame);
     if(track_success){
         num_lost_ = 0;
         curr_frame_->is_good_ = true;
@@ -118,6 +112,14 @@ bool Tracker::TrackLastframe(){
 
         }
     }
+
+    // for(auto ft : curr_frame_->features_){
+    //     if(!ft || !ft->map_point_.lock())
+    //         continue;
+        
+    //     auto mp = ft->map_point_.lock();
+    //     mp->pos_ = relative_motion_ * mp->pos_;
+    // }
 
     return true;
 }
@@ -474,6 +476,76 @@ bool Tracker::MatchFeaturesByProjection(FramePtr frame, int th)
 
 bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
 {
+    /*特征点匹配*/
+    int num_matched = 0;
+    vector<cv::DMatch> matches;
+    cv::Ptr<cv::DescriptorMatcher> matcher = 
+        cv::DescriptorMatcher::create("BruteForce-Hamming(2)"); // BF匹配
+
+    // 取出frame中可以匹配的特征
+    cv::Mat descriptors_1;
+    std::vector<int> descriptor_1_to_feature_idx;
+    for (int i = 0; i < frame->features_.size(); i++)
+    {
+        if (!frame->features_[i])
+            continue;
+        
+        descriptors_1.push_back(frame->features_[i]->descriptor_);
+        descriptor_1_to_feature_idx.push_back(i);
+    }
+
+    if (!descriptors_1.rows)
+    {
+        LOG(WARNING) << "Frame descriptors are empty.";
+        return false;
+    }
+
+    // 匹配
+    cv::Mat descriptors_2 = curr_frame_->descriptors_l_;
+    matcher->match(descriptors_1, descriptors_2, matches); 
+    // matcher->knnMatch(descriptors_1, descriptors_2, knnMatches, 2); // knn匹配
+
+    // 计算最小距离
+    float min_dis = std::min_element(matches.begin(), matches.end(), 
+                        [](const cv::DMatch &m1, const cv::DMatch &m2) { 
+                            return m1.distance < m2.distance; })
+                        ->distance;
+
+    // 匹配结果进一步筛选
+    int j = 0;
+    int count = 0;
+    features_matched_.resize(frame->features_.size());
+    for (int i = 0; i < frame->features_.size(); i++)
+    {
+        if (!frame->features_[i] || features_matched_[i] != cv::Point2f(0, 0))
+            continue;
+        else
+        {
+            cv::DMatch &m = matches[j];
+            int queryIdx = m.queryIdx; // frame帧
+            int trainIdx = m.trainIdx; // 当前帧
+            if (m.distance < max<float>(min_dis * 2, 30.0))
+            {
+                count++;
+                num_matched++;
+                features_matched_[i] = curr_frame_->keypoints_l_[trainIdx].pt;
+                auto mp = frame->features_[descriptor_1_to_feature_idx[queryIdx]]->map_point_.lock();
+                if(mp && curr_frame_->features_[trainIdx])
+                    curr_frame_->features_[trainIdx]->map_point_ = mp;
+            }
+            j++;
+        }
+    }
+
+    LOG(INFO) << "暴力匹配数量：" << count;
+    // 如果匹配数量过少，则返回false
+    if (num_matched < 0.05 * ORBextractor::nfeatures){
+        LOG(ERROR) << "暴力匹配数量太少：" << count;
+        return false;
+    }
+    
+    return true;
+/* 
     int num_matched = 0;
     std::vector<cv::DMatch> matches;
 
@@ -537,7 +609,7 @@ bool Tracker::MatchFeaturesByBruteForce(FramePtr frame, int th)
         return false;
     }
 
-    return true;
+    return true; */
 }
 
 bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<cv::Point2d>& pixels_2d)
@@ -571,7 +643,7 @@ bool Tracker::CalcPoseByPnP(const vector<cv::Point3d>& points_3d, const vector<c
         return false;
     }
 
-    curr_frame_->Twc_ = last_frame_->Twc_ * SE3(R_eg, t_eg);
+    curr_frame_->Twc_ = /* last_frame_->Twc_ * */ SE3(R_eg, t_eg);
     
     // 剔除误匹配
     int j = 0, k = 0;
@@ -647,7 +719,7 @@ bool Tracker::TriangulateNewPoints(){
 
             if (math::triangulatePoint(poses, points, pworld) && pworld[2] > 0) {
                 auto new_map_point = MapPoint::CreateNewMappoint();
-                // pworld = current_pose_Tcw * pworld;
+                pworld = current_pose_Tcw * pworld;
                 new_map_point->pos_ = pworld;
                 new_map_point->AddObservation(
                     curr_frame_->features_[i]);
